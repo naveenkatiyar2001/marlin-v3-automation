@@ -1,0 +1,9 @@
+# Runtime data (generated per session)
+data/*.json
+data/*.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/

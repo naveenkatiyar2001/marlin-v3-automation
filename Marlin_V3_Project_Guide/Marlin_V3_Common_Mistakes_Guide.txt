@@ -1,0 +1,213 @@
+================================================================================
+MARLIN V3 — COMMON MISTAKES GUIDE
+================================================================================
+Source: Marlin EC Training — Common Mistake.pdf
+================================================================================
+Frequent reasons submissions are rejected — review these before submitting.
+
+
+================================================================================
+PROMPT PREPARATION
+================================================================================
+
+Prompt references the existing PR
+  You must write your prompt as if the PR does not yet exist. Imagine you are the
+  original developer planning the work from scratch — never reference the PR number,
+  branch, or its contents directly.
+
+Role-based prompting
+  Avoid phrases like "You are a senior software engineer…" or "Act as an expert
+  developer…". Write clear, direct instructions describing what needs to be done — the
+  model does not need a persona to perform well.
+
+Prompt created with or relies on an LLM
+  Using external AI tools to write or refine your prompt is not allowed. All
+  reasoning and prompt writing must be your own work.
+
+Prompt is unrelated to the selected repository or PR scope
+  Your prompt must be directly tied to the repository and pull request you selected.
+  Prompts that are generic, off-topic, or request work outside the intended PR scope
+  will be rejected.
+
+Prompt is too vague or ambiguous
+  Prompts like "fix any remaining bugs" or "improve the code" without identifying
+  specific issues provide no meaningful direction. Be concrete: identify specific
+  files, functions, behaviors, and expected outcomes.
+
+Prompt requests extraneous or out-of-scope features
+  Stick to the intent of the original PR. Requesting unrealistic features or changes
+  far beyond the PR scope makes submissions harder to evaluate and is a common
+  rejection trigger.
+
+Prompt is over-prescriptive
+  Spelling out every file, line, and implementation decision removes the ability to
+  evaluate the model's independent engineering judgment. Describe the problem and the
+  success criteria — leave implementation to the model. Target a task at the 6–8
+  engineer-hours level of complexity.
+
+Selecting the wrong category
+  V3 requires every submission to fit one of the defined prompt categories (Git,
+  Ambiguous, Discussion, Explaining, Code Review, Refactor, Greenfield, Bug Fix,
+  Chore, Documentation, New Feature, Performance, Testing and QA, Other). If your
+  prompt does not fit the selected category, it may be rejected.
+
+
+================================================================================
+TURN & ITERATION ISSUES
+================================================================================
+
+Fewer than 3 meaningful turns
+  All submissions must include at least three turns of iteration with the model.
+  Turns that only ask the model to "verify" or "review" without driving actual code
+  changes do not count as meaningful.
+
+First turn prompt does not match the approved Prompt Preparation
+  The initial prompt used in your submission must match the prompt approved during
+  Prompt Preparation. Significant deviations are grounds for rejection.
+
+Checked out the PR branch instead of using the pre-PR tarball
+  A common mistake that results in no meaningful diffs. Always use the pre-PR
+  repository state provided in the approval email — never check out the PR branch
+  directly (e.g. pr-833), as it already contains the changes.
+
+Non-meaningful follow-up prompts
+  Follow-up turns must drive real, concrete changes. The following are not acceptable
+  as standalone turns:
+    • "Please double check that all changes were applied correctly and run any
+      necessary tests."
+    • "Review the implementation and fix anything that might be wrong."
+    • "Ensure everything is production ready and make changes only if needed."
+    • "Check for any remaining bugs or improvements."
+  Instead, identify a specific issue and request a concrete change — e.g. naming the
+  exact file, function, and expected behavior.
+
+Follow-up prompts introduce unrelated new requirements
+  V3 change: Related functionality (missing edge cases, tests, secondary features)
+  may now be introduced in later turns — as long as each turn advances the
+  implementation concretely and the content remains relevant to the original task.
+  What is not acceptable: requirements entirely unrelated to the original task,
+  contradicting earlier instructions, or belonging in a separate PR altogether.
+
+Final preferred output is not production-ready
+  If additional turns could clearly bring the preferred output to an acceptable state
+  but you stopped short, the submission may be rejected. Use all available turns to
+  reach a production-ready result.
+
+
+================================================================================
+RATING & JUSTIFICATION ISSUES
+================================================================================
+
+Extreme ratings not supported by diffs
+  Ratings of A1 or B1 signal a decisive, significant quality difference. If the actual
+  code diffs do not clearly support such a strong preference, choose a less extreme
+  rating. Unjustified extreme ratings undermine your credibility.
+
+Selecting "equivalent" when a real difference exists
+  If one model response is measurably better — more correct, more complete, better
+  structured — you should reflect that in your rating. Defaulting to "equivalent" to
+  avoid making a call is itself a justification issue.
+
+Overuse of N/A ratings
+  N/A should only be used when a rating category genuinely does not apply to the
+  turn. If the category clearly applies, rate it — even if it is difficult. Excessive
+  N/A usage signals disengagement.
+
+Vague or generic justifications
+  Justifications must reference concrete evidence: specific files, functions, logic, or
+  behaviors from the diff. Statements like "Option A is cleaner" or "Option B
+  handles edge cases better" without pointing to actual code are not sufficient.
+
+Ratings not aligned with written pros/cons
+  If your written feedback says Option A missed a key requirement but your rating
+  favors Option A, that contradiction will be flagged. Ratings, pros/cons, and
+  justification must tell a consistent story.
+
+Justification language does not match rating magnitude
+  The strength of your written language must be consistent with your rating. Writing
+  "clearly better" while rating only A3, or hedging language like "slightly more
+  readable" while rating A1, creates ambiguity for reviewers. Match your words to your
+  score.
+
+Anchoring SxS scores on ideal output instead of relative performance
+  When both models fall short of a perfect response, do not rate both in the middle
+  as if the ideal output is the benchmark. Rate the relative difference between the two
+  trajectories. If Model A gets 60% of the way there correctly and Model B gets 30%,
+  the right rating is A3 or A2 — not A4/B4.
+
+Strengths fields only summarise what the model did
+  Strengths fields should explain why something matters in relation to the rating
+  category — not just describe that it happened. "Model A added tests" is not
+  sufficient. "Model A added regression coverage in tests/test_search.py that
+  directly validates the fixed behaviour — without this test, a future refactor could
+  silently reintroduce the bug" is evaluative.
+
+Key-axis field left empty when a non-middle preference was selected
+  Whenever you rate A1, A2, B1, or B2, you must complete the key-axis field. Name the
+  specific dimension that drove the preference — correctness, test coverage, scope
+  control, root cause handling, or accuracy of self-reporting. A single sentence is
+  sufficient.
+
+
+================================================================================
+GENERAL QUALITY ISSUES
+================================================================================
+
+Praising a model for work it did not do
+  Claiming a model added tests, implemented a feature, or fixed a bug when the diff
+  shows no such change is a serious error. Always verify claims against the actual
+  diff before writing your justification.
+
+Turn 1 contradicts later turns
+  Examples of contradictions that trigger rejection:
+    • Turn 1 says "do not add comments" → Turn 2 criticism: "model didn't add
+      comments"
+    • Turn 1 requests a new test file → Turn 2 asks to delete that same file
+
+Large diffs caused by not initializing the repo
+  If you see unexpectedly large diffs touching many files, you likely ran the CLI
+  without initializing the repository first. Before running the CLI, ensure you have
+  committed the baseline:
+
+    git init
+    git add .
+    git commit -m "Initial commit"
+
+  Then run the CLI from the repo root.
+
+
+================================================================================
+PRE-SUBMISSION CHECKLIST
+================================================================================
+Before you submit, verify:
+
+  ☐ Prompt does not reference the PR and was not created with an LLM
+  ☐ Used the pre-PR tarball (not the PR branch) as your starting point
+  ☐ Submission includes at least 3 meaningful turns with real code changes
+  ☐ First turn matches the approved Prompt Preparation submission
+  ☐ Each follow-up prompt identifies a specific issue and requests a concrete change
+  ☐ Ratings are supported by actual diffs, not assumptions
+  ☐ Ratings, pros/cons, and justifications are internally consistent
+  ☐ The final preferred output is production-ready
+  ☐ Prompt does not over-prescribe implementation details — problem and success
+    criteria are clear, but the model has room to make engineering decisions
+  ☐ Dev environment was set up (dependencies installed, baseline tests passing)
+    before running the CLI
+  ☐ SxS scores reflect relative performance between models, not closeness to an ideal
+    output
+  ☐ Justification language matches rating magnitude — wording and score are consistent
+  ☐ Strengths fields explain why the model's actions matter, not just list what it did
+  ☐ Key-axis field completed if A1, A2, A3, B1, B2, or B3 was selected
+  ☐ (V3) Evaluation writeup covers all 9 required questions with evidence
+  ☐ (V3) Diffs and model traces reviewed before submission
+
+
+================================================================================
+TEST YOUR KNOWLEDGE
+================================================================================
+After reviewing what to avoid, check your understanding with the Guidelines Quiz on
+the training hub (Start Quiz →).
+
+================================================================================
+END OF COMMON MISTAKES GUIDE
+================================================================================

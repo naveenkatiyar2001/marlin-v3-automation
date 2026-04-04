@@ -1,0 +1,5 @@
+# Marlin V3 Phase 1 Automation (Terminal-Based)
+# Python 3.10+ required
+
+# Optional: verified SSL for GitHub API (recommended)
+certifi

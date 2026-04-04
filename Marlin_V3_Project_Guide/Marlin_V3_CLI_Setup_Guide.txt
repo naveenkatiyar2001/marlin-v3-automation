@@ -1,0 +1,271 @@
+================================================================================
+MARLIN V3 — CLI TOOL INSTALLATION & USAGE GUIDE
+================================================================================
+Source: Marlin EC Training — CLI Setup.pdf
+================================================================================
+
+CRITICAL — GIT COMMITS
+--------------------------------------------------------------------------------
+Do not run git commit between turns. The CLI tool manages git state automatically.
+Making manual commits between turns will corrupt trajectory tracking and cause
+incorrect diffs.
+
+Only run git commit once at the very beginning to initialize the repository — never
+between turns.
+
+
+================================================================================
+CLI TOOL WALKTHROUGH
+================================================================================
+Watch the tutorial video for a complete walkthrough of CLI setup and usage.
+
+
+1. SYSTEM REQUIREMENTS
+--------------------------------------------------------------------------------
+Before beginning, ensure your system has:
+
+  • Git
+  • VS Code (added to PATH)
+  • Terminal access
+  • Internet connection
+  • Python
+
+
+2. ADD VS CODE TO PATH
+--------------------------------------------------------------------------------
+The CLI tool requires VS Code to be accessible from the command line. Follow
+instructions for your operating system.
+
+macOS — Method 1 (recommended, from inside VS Code)
+  1. Open VS Code.
+  2. Press Cmd + Shift + P to open the Command Palette.
+  3. Type: Shell Command: Install 'code' command in PATH
+  4. Press Enter.
+
+  Verify the installation:
+
+    code --version
+
+  If you see version info, the setup is complete.
+
+macOS — Method 2 (manual, if Method 1 does not work)
+  VS Code installs its binary here:
+
+    /Applications/Visual Studio Code.app/Contents/Resources/app/bin
+
+  Add to PATH in your shell config (zsh):
+
+    echo 'export PATH="/Applications/Visual Studio Code.app/Contents/Resources/app/bin:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
+
+Linux
+  If installed via a package manager (snap, apt, yum), VS Code often adds itself to
+  PATH automatically.
+
+  If not, append to your .bashrc or .zshrc:
+
+    export PATH="$PATH:/usr/share/code/bin"
+
+  Then reload:
+
+    source ~/.bashrc
+
+
+3. INSTALL REQUIRED DEPENDENCIES
+--------------------------------------------------------------------------------
+The CLI tool relies on tmux to display and manage live model sessions. Install it
+before continuing.
+
+macOS (Homebrew)
+
+    brew install tmux
+
+Linux
+
+    sudo apt update
+    sudo apt install tmux
+
+Verify installation:
+
+    tmux -V
+
+
+4. DOWNLOAD AND PREPARE THE REPOSITORY
+--------------------------------------------------------------------------------
+After your Prompt-Preparation submission is accepted, you will receive an email
+with a link to download the repository tarball.
+
+Download the tarball using the repo link from the email, then unpack and initialize:
+
+    # Download the tarball from the email link
+    # Then unpack it:
+    tar -xvf <downloaded-file>.tar
+
+    # Navigate into the unpacked directory
+    cd <repo-folder>
+
+    # Initialize git in the repository
+    git init
+
+Make sure to run git init inside the root of the unpacked directory. This is required
+for the CLI tool to track changes.
+
+
+================================================================================
+CLARIFICATION: "HEAD COMMIT AT THE TIME THE TASK WAS STARTED"
+================================================================================
+In the Pre-Thread Survey you will be asked for: "The HEAD commit at the time the
+task was started."
+
+This refers to the state of the repository immediately before the Pull Request was
+merged — the latest commit on the base branch just before the PR changes were
+introduced. It is the commit you are on after running git init and
+git add . && git commit on the pre-PR tarball.
+
+  Correct: The base repository commit representing the code before the PR changes were
+           introduced.
+
+  Incorrect: The commit at the tip of the PR branch (which already contains the
+              changes being implemented).
+
+
+5. ACCESS THE ANTHROPIC TOOL
+--------------------------------------------------------------------------------
+Open:
+
+    https://feedback.anthropic.com/claude_code?email_login=true
+
+
+6. AUTHENTICATE USING YOUR ALIAS EMAIL
+--------------------------------------------------------------------------------
+Enter your Alias email address. A verification code will be sent to your Alias inbox.
+Enter the code to complete login.
+
+Do not use "Sign in with Google." If authentication fails on the first attempt,
+repeat the login.
+
+
+7. DOWNLOAD THE APPROPRIATE CLI TOOL BUILD
+--------------------------------------------------------------------------------
+Select the binary that matches your operating system and CPU architecture:
+
+  • macOS (Intel)
+  • macOS (ARM)
+  • Linux
+
+The file will download to ~/Downloads by default.
+
+
+8. MOVE AND PREPARE THE CLI TOOL
+--------------------------------------------------------------------------------
+From within the root of your cloned repository, move the downloaded file into place
+and make it executable:
+
+    mv ~/Downloads/<downloaded-filename> claude-hfi
+    chmod +x claude-hfi
+
+Example:
+
+    mv ~/Downloads/darwin-arm64 claude-hfi
+    chmod +x claude-hfi
+    ls
+    # claude-hfi    README.md
+
+Every repository you work on must contain its own copy of claude-hfi at the root.
+Repeat this step for each new repository.
+
+
+9. LAUNCH THE CLI TOOL IN VS CODE MODE
+--------------------------------------------------------------------------------
+From the repository root:
+
+    ./claude-hfi --vscode
+
+This initializes the tool, performs authentication if required, and prepares the
+environment. Two separate VS Code windows (Trajectory A and Trajectory B) will open
+automatically during execution.
+
+
+10. RESUME A PREVIOUS SESSION
+--------------------------------------------------------------------------------
+If you closed your session and want to continue:
+
+    ./claude-hfi --continue
+
+This restores your previous session so you can pick up where you left off.
+
+
+11. ENTER THE INTERFACE CODE
+--------------------------------------------------------------------------------
+When prompted for the Interface Code, enter:
+
+    cc_agentic_coding_next
+
+This enables the correct workflow mode for V3. Note: V2 used cc_agentic_coding —
+use the V3 code.
+
+
+12. ATTACH TO TMUX SESSIONS
+--------------------------------------------------------------------------------
+In each VS Code window, open the integrated terminal and attach to the appropriate
+tmux session:
+
+    tmux attach -t <session-id>-A
+
+and
+
+    tmux attach -t <session-id>-B
+
+
+13. PROVIDE YOUR INITIAL PROMPT
+--------------------------------------------------------------------------------
+Paste the full prompt you completed during Prompt-Preparation. Press Enter to begin
+model execution. The CLI starts two independent trajectories, each in its own VS Code
+instance.
+
+
+14. WAIT FOR TRAJECTORY COMPLETION
+--------------------------------------------------------------------------------
+In the main terminal, the tool will display:
+
+    Waiting for trajectories to complete...
+
+Do not proceed until both trajectories have finished running.
+
+
+15. REVIEW ALL GENERATED FILES
+--------------------------------------------------------------------------------
+When execution completes, carefully review both trajectories:
+
+  1. Open the VS Code Source Control panel.
+  2. Click on every modified file.
+  3. Examine each line-level diff.
+  4. Confirm that all requested behavior has been implemented.
+  5. Ensure the model did not introduce unnecessary changes or files.
+  6. Verify that no required functionality is missing.
+  7. If the repository includes tests, run them and confirm they pass.
+  8. If new functionality requires additional tests, ensure they exist and are correct.
+
+
+================================================================================
+TROUBLESHOOTING — MULTI-TURN WORKFLOW
+================================================================================
+Key takeaway: The current multi-turn workflow requires quitting and restarting the CLI
+between turns to maintain stability.
+
+  1. Start the CLI tool normally:
+
+       ./claude-hfi --vscode
+
+  2. Complete the first turn as usual.
+  3. Do not run git commit between turns.
+  4. Exit the tool between turns: Ctrl + C
+  5. Relaunch with the continue flag:
+
+       ./claude-hfi --vscode --continue
+
+  6. Repeat this exit → relaunch cycle for as many turns as necessary.
+
+================================================================================
+END OF CLI SETUP GUIDE
+================================================================================

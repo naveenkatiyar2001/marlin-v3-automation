@@ -1,0 +1,344 @@
+================================================================================
+MARLIN V3 — PROMPT PREPARATION GUIDE
+================================================================================
+Source: Marlin EC Training — Prompt Preparation.pdf
+================================================================================
+
+TUTORIAL VIDEO
+--------------------------------------------------------------------------------
+Note: The video was recorded for V2 and will be updated for V3. It shows the
+general workflow — some specific rules have changed in V3 (see below).
+
+
+================================================================================
+PROMPT CATEGORIES (V3)
+================================================================================
+New in V3: Every submission must fit one of the defined prompt categories.
+Select the category that best matches your initial prompt — reviewers will verify
+it.
+
+Category index (reference):
+
+  1. Git
+  2. Ambiguous
+  3. Discussion
+  4. Explaining
+  5. Code Review
+  6. Refactor
+  7. Greenfield
+  8. Bug Fix
+  9. Chore
+  10. Documentation
+  11. New Feature
+  12. Performance
+  13. Testing and QA
+  14. Other
+
+--------------------------------------------------------------------------------
+1. Git
+--------------------------------------------------------------------------------
+Tasks involving git actions — complex enough that both models take meaningfully
+different approaches.
+
+--------------------------------------------------------------------------------
+2. Ambiguous
+--------------------------------------------------------------------------------
+Tasks where the ideal response is to ask for clarification rather than immediately
+produce code.
+
+--------------------------------------------------------------------------------
+3. Discussion
+--------------------------------------------------------------------------------
+One or more prompts use Claude Code to answer questions without producing code.
+Challenging questions where response quality has significant variance.
+
+--------------------------------------------------------------------------------
+4. Explaining
+--------------------------------------------------------------------------------
+One or more prompts ask the model to explain how specific code works, walk through
+a codebase, or make changes and clearly narrate what was done and why.
+
+Distinct from Discussion — Discussion is reasoning through problems or tradeoffs;
+Explaining is asking how existing code or a change works.
+
+--------------------------------------------------------------------------------
+5. Code Review
+--------------------------------------------------------------------------------
+One or more prompts ask for a code review. Scope should be meaningful — reviewing
+a feature suite is typically the right level.
+
+--------------------------------------------------------------------------------
+6. Refactor
+--------------------------------------------------------------------------------
+One or more prompts relate to refactoring a portion of the codebase — cleanup,
+consolidating logic, improving readability without changing behavior.
+
+--------------------------------------------------------------------------------
+7. Greenfield
+--------------------------------------------------------------------------------
+Task starts from an empty repository, building something from scratch.
+
+--------------------------------------------------------------------------------
+8. Bug Fix
+--------------------------------------------------------------------------------
+One or more prompts ask the model to identify and fix a specific, concrete, and
+reproducible bug.
+
+--------------------------------------------------------------------------------
+9. Chore
+--------------------------------------------------------------------------------
+Maintenance work that does not change external behavior — dependency updates,
+config changes, build system fixes.
+
+--------------------------------------------------------------------------------
+10. Documentation
+--------------------------------------------------------------------------------
+One or more prompts ask the model to write, update, or improve documentation —
+inline comments, docstrings, READMEs, API docs.
+
+--------------------------------------------------------------------------------
+11. New Feature
+--------------------------------------------------------------------------------
+One or more prompts ask the model to add entirely new functionality to an existing
+repository.
+
+--------------------------------------------------------------------------------
+12. Performance
+--------------------------------------------------------------------------------
+One or more prompts ask the model to improve performance — reducing latency,
+memory usage, or computational cost, with a clear success condition.
+
+--------------------------------------------------------------------------------
+13. Testing and QA
+--------------------------------------------------------------------------------
+One or more prompts ask the model to write, improve, or extend tests. Distinct
+from Code Review — this involves implementing test changes, not recommending them.
+
+--------------------------------------------------------------------------------
+14. Other
+--------------------------------------------------------------------------------
+Use only when the task genuinely does not fit any of the above. Check in the
+channel if unsure.
+
+
+================================================================================
+PHASED IMPLEMENTATION — V3 CHANGE (V3 SUPERSEDES V2)
+================================================================================
+The initial prompt is no longer required to include the full scope of the PR.
+
+V2 — Full scope required upfront
+  • A valid Turn 1 must be a complete technical specification.
+  • If you identified an edge case but did not include it in Turn 1, that is a
+    failure of instruction.
+
+V3 — Phased implementation permitted
+  • It is acceptable to implement core logic in Turn 1, then introduce remaining
+    related functionality (missing edge cases, tests, secondary features) in later
+    turns, as long as each turn advances the implementation in a concrete,
+    reviewable way.
+
+Regardless of version, your prompt scope must be coherent — think of it as a
+hypothetical PR. Everything requested should plausibly belong in a single PR.
+
+  • You may add requirements beyond the real PR, provided they are relevant.
+  • You must not request features entirely unrelated to the selected repository or
+    PR scope.
+  • For Greenfield submissions you may not use a PR at all.
+  • For other categories you may add things that fit the category described on the
+    PR Selection page.
+
+
+================================================================================
+WHAT IS THE PURPOSE OF THE PR IN WRITING MY PROMPT?
+================================================================================
+The main goal is to provide a challenging prompt in a real-world context. The
+existence of the PR is an aid, not the goal itself.
+
+The PR exists for three reasons:
+
+  1. Creativity hurdle — Helps you come up with a unique and challenging prompt
+     from scratch.
+  2. Prompt diversity — Keeps prompts varied so submissions are not all asking for
+     the same thing.
+  3. Historical repo state — Lets you work from a historical state of a repo for
+     more code options.
+
+Your prompt scope does not have to match the PR scope exactly. It is more important
+to write a prompt that is technically challenging enough that the model fails due to
+engineering complexity — not because you withheld requirements. You may add
+additional requirements beyond what was in the PR, as long as they are relevant and
+(in V2-style full-scope framing) all included upfront in Turn 1; in V3, remaining
+related functionality may appear in later turns as described in Phased
+Implementation.
+
+In V3, it is acceptable to introduce remaining related functionality (missing edge
+cases, tests, secondary features) in later turns — as long as each turn advances the
+implementation concretely.
+
+Think of your prompt as a hypothetical PR — would it make sense for everything you
+are asking to be in one PR?
+
+Good examples (conceptually)
+  • Request additional test coverage that was not in the real-world PR.
+  • Request the feature handle edge cases the real-world PR did not account for.
+
+Bad example
+  • PR is for adding a testing suite; your prompt also asks to build a video game
+    to play during the loading screen — irrelevant and would not belong in a single
+    PR.
+
+
+================================================================================
+WHAT YOU NEED TO PREPARE
+================================================================================
+
+1. Repository and Pull Request Context
+   Provide the background needed to understand the task.
+   Explain what the repository does, what the selected pull request is intended to
+   change or fix, and why that change is necessary. Write clearly enough that
+   someone unfamiliar with the codebase can understand the purpose and intent.
+   Focus on behavior and impact rather than implementation history.
+
+2. Task Approach
+   Describe how the change should be implemented and how correctness will be
+   evaluated.
+   Explain current behavior vs. desired behavior after the change. Identify files,
+   functions, or components involved, and note dependencies or interactions that
+   may be affected.
+   Call out relevant edge cases explicitly — concrete and verifiable, not
+   hypothetical. If tests need to be added or updated, describe what they should
+   cover and how they validate expected behavior.
+   Define acceptance criteria that clearly indicate when the task is complete.
+
+3. Prompt Definition
+   Write the prompt that will be used during execution.
+   The prompt must be self-contained and describe exactly what the model is expected
+   to do. Instructions should be clear, objective, and structured. Avoid conversational
+   language and do not use role-based prompting.
+   Someone reading the prompt alone should understand the task without extra context.
+
+   Do not use role-based prompting.
+   Avoid phrases like "You are a senior software engineer..." or "Act as an expert
+   developer...". Write clear, direct instructions for what needs to be done.
+
+   Do not use LLMs.
+   Avoid using any LLMs during the creation of the prompt or during any stage in
+   general.
+
+   Do not reference the PR in your prompt.
+   Imagine you are the developer who was originally building this PR. You cannot
+   reference the PR that already exists — write as if the PR does not exist yet.
+
+4. Effort and Complexity
+   Briefly describe the level of engineering effort required.
+   Explain why the pull request is non-trivial (files involved, logic complexity,
+   component interactions, edge cases).
+   The goal is to show the task requires real analysis and deliberate engineering
+   decisions.
+
+
+================================================================================
+EXAMPLE OF A GOOD PROMPT (FROM THE GUIDE)
+================================================================================
+Update Gaphor's property editor to clearly separate model-level and diagram-level
+behavior for UML Dependency elements. Add a dedicated property page for Dependency
+model objects that shows Source and Target when selected from the model tree.
+Refactor the existing Dependency diagram item editor into a separate item-specific
+page with updated identifiers. Add support for the UML isFinalSpecialization
+attribute on classifiers and expose it through a toggle in the classifier property
+editor using proper transaction handling. Update the GTK UI definitions where
+needed and add unit tests to verify both Dependency property visibility and
+classifier specialization updates. The changes should follow the UML specification
+and leave the code production ready.
+
+Why this works:
+  • Names exact components and behaviors — no hand-waving.
+  • Outcomes you can verify — property visibility, toggles, refactored editors, unit
+    tests — all observable and testable.
+  • Reads like a real GitHub issue — how engineers describe work to each other.
+  • Thinks about production — transaction handling, spec compliance, production
+    ready.
+  • Sounds human — domain-specific language, no "Act as..." preamble.
+
+
+================================================================================
+QUALITY EXPECTATIONS & WRITING CHECKLIST
+================================================================================
+V3 change: Verifiable prompts are now strongly encouraged but no longer mandatory,
+provided the acceptance criteria field explicitly describes expected behaviour,
+signals for judging correctness, and what counts as incomplete.
+
+Your responses should be precise and technically grounded. Work should reflect your
+own reasoning and understanding of the codebase.
+
+Writing quality checklist
+  • Do not use role-based prompting.
+  • Do not use LLMs at any stage of prompt creation.
+  • Name exact components and behaviours — no hand-waving.
+  • Outcomes must be observable and testable.
+  • Reads like a real GitHub issue written by an engineer, not a chat request.
+  • Think about production: transaction handling, spec compliance, error handling,
+    code quality.
+  • Select the category that best fits your initial prompt — you do not need to
+    account for every turn upfront. Categories can evolve across the conversation.
+
+
+================================================================================
+AVOID OVER-PRESCRIPTIVE PROMPTS (V3 GUIDANCE)
+================================================================================
+New V3 guidance: This replaces the prior expectation that prompts should spell out
+all implementation details.
+
+Models are capable of significant independent engineering judgment. Prompts that
+micromanage every step deprive reviewers of evaluating that capability and can look
+LLM-generated.
+
+Target: a task that would take a competent engineer roughly 6–8 hours to complete.
+Describe the problem clearly and what success looks like — do not hand-hold through
+every file, function, and design decision.
+
+Over-prescriptive (avoid)
+  "In api/search.py, on line 47, change the call from decode('ascii') to
+  decode('utf-8'). Then open tests/test_search.py and add a test named
+  test_non_ascii_query..."
+
+Appropriately scoped (aim for)
+  "Requests to /api/search return 500 when the query contains non-ASCII characters.
+  Fix the encoding/decoding path so unicode queries work correctly and add regression
+  test coverage."
+
+You are encouraged to veer away from the exact scope of the real PR and use it only
+as a starting point. As long as you ask for something genuinely challenging at the
+6–8 hour engineering level, that is more valuable than strictly matching the PR's
+scope.
+
+
+================================================================================
+WHAT REVIEWERS WILL CHECK — CATEGORIES (V3)
+================================================================================
+V3 has clearly defined prompt categories. Reviewers will verify that your selected
+category matches your prompt.
+
+There is no new separate project for Prompt Prep in V3 — a selector on the existing
+project indicates V3 submissions. For V3, reviewers check the selected category and
+confirm it matches the prompt.
+
+Conversations can span multiple prompt types — that is expected.
+
+During Prompt Prep, you are only required to ensure your initial prompt fits the
+category (or categories) you selected. Follow-up turns may introduce different types
+of work. You do not need to predict every category upfront.
+
+  • Severe mismatch — reviewer may reject and give clear feedback; ensure your
+    category genuinely fits your prompt.
+  • Partial match — if the prompt matches the category but other categories could
+    also apply, the reviewer may modify the category rather than reject.
+
+Prompt Review V3 — category drift
+Categories may change across follow-up prompts (e.g. Turn 1 Discussion, Turn 2 Code
+Review). Reviewers may add new categories during final review — you do not need to
+predict every category upfront.
+
+================================================================================
+END OF PROMPT PREPARATION GUIDE
+================================================================================

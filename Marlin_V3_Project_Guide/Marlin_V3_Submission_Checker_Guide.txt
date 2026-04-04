@@ -1,0 +1,52 @@
+================================================================================
+MARLIN V3 — MARLIN-SUBMISSION-CHECKER-V3 GUIDE
+================================================================================
+Source: Marlin-Submission-Checker-V3.pdf (filename on disk may include a leading space)
+================================================================================
+
+Marlin-Submission-Checker-V3 — Optional but Recommended
+
+Snorkel built a companion tool to help you catch common issues before you submit
+each turn — rather than finding out after the fact during review. Think of it as a
+live sanity check as you work through a task.
+
+
+================================================================================
+TOOL WALKTHROUGH
+================================================================================
+
+How to access
+  Go to the Snorkel Expert Platform, find Marlin-Submission-Checker-V3, and click on
+  a submission there.
+
+How it works
+  The tool is a scratchpad project — you do not submit anything through it.
+
+  As you complete each turn, fill in the same fields you would enter in the CLI: your
+  prompt, Model A and B pros/cons, and your SxS ratings. Then hit the feedback button to
+  run automated checks on the spot.
+
+What it currently flags
+  • Your overall justification favoring one model while your SxS scores favor the
+    other
+  • Ratings that are not explained anywhere in your written feedback
+  • Prompts that reference the PR directly
+  • Follow-up prompts that repeat what was already asked in Turn 1
+
+Multi-Turn Prompt Checker
+  There is a second tab for multi-turn prompt checking: paste your prompts across turns
+  and it will flag redundant requests or scope that drifts too far from the original
+  task.
+
+A few things to keep in mind
+  • The tool is optional — nothing here auto-rejects your submission.
+  • The checks are still experimental; you may occasionally disagree with a result. If
+    so, flag it in the Slack channel.
+  • Think of flagged issues as a preview of what reviewers will look for. A green
+    light here is a good sign you are on the right track.
+  • Once everything looks good, copy your values over into the CLI and submit as
+    normal.
+
+================================================================================
+END OF SUBMISSION CHECKER GUIDE
+================================================================================

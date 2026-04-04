@@ -1,0 +1,218 @@
+================================================================================
+MARLIN V3 — PR SELECTION GUIDE
+================================================================================
+Source: Marlin EC Training (extracted from PDF)
+Phase: Phase 3 — Select Your Repo and Pull Request
+Document: Marlin-PR-Selection Instructions
+================================================================================
+
+TUTORIAL VIDEO
+--------------------------------------------------------------------------------
+Note: The tutorial video was recorded for V2 and will be updated for V3. It is
+provided to show the general workflow — the interface and process are the same.
+Link to video :https://www.loom.com/share/a212b65a295c4593bad11ac8bb94055e  
+## Note: you can watch the above video, if you can watch and understand for reference.
+
+STEP 1 — UNDERSTAND THE INTERFACE
+--------------------------------------------------------------------------------
+The application uses a split-screen layout:
+
+  • Left side
+    Displays the PR Glossary: many repositories, each with a number of
+    available pull requests.
+
+  • Right side
+    Here you select your repository and which corresponding pull request you
+    want to work with.
+
+
+STEP 2 — REVIEW AND IDENTIFY A SUITABLE PR
+--------------------------------------------------------------------------------
+Read through the repositories and pull requests to identify one you feel
+comfortable with.
+
+Before you commit, double-check that the pull request is sufficiently complex:
+
+  • You would expect a human engineer to take at least ~2 hours to complete it.
+  • You would expect a model to struggle to complete the request on its 1st or
+    2nd try.
+  • It involves a supported language (see “Supported Languages (V3)” below).
+
+
+STEP 3 — MAKE YOUR SELECTION
+--------------------------------------------------------------------------------
+  1. Select your repository under “Multi-dimensional radio”.
+  2. Select your corresponding pull request under “Sub-topic required”.
+  3. Click SUBMIT.
+
+
+STEP 4 — WAIT FOR PROCESSING
+--------------------------------------------------------------------------------
+Wait 1–2 minutes for Snorkel systems to process your choice before moving on to
+Marlin Prompt Preparation.
+
+Tip: Use this time to start thinking about how you will approach the prompt
+preparation phase.
+
+
+================================================================================
+SUPPORTED LANGUAGES (V3)
+================================================================================
+V3 only: Submissions are no longer limited to Python. You can select PRs from
+repositories in any of the supported languages below.
+
+In V3 you may select pull requests from repositories written in:
+
+  • Python
+  • JavaScript / TypeScript
+  • Go
+  • Rust
+  • Java
+  • C++
+
+More languages may be added later.
+
+
+================================================================================
+PROMPT CATEGORIES (V3)
+================================================================================
+V3 only: Every submission must include at least one prompt that fits one of the
+categories below. Submissions that do not fit any category will be rejected.
+
+Each submission must have at least one prompt that meets one of the following
+categories. Some categories work best with all prompts in the same category;
+others work better with the first prompt fitting the category and the rest
+functioning normally.
+
+Important: If a category receives most submissions, it may be temporarily
+disabled until submissions balance out across categories.
+
+Category index (14 prompt categories — use these numbers when referring to a category):
+
+  1. Git
+  2. Ambiguous
+  3. Discussion
+  4. Explaining
+  5. Code Review
+  6. Refactor
+  7. Greenfield
+  8. Bug Fix
+  9. Chore
+  10. Documentation
+  11. New Feature
+  12. Performance
+  13. Testing and QA
+  14. Other
+
+--------------------------------------------------------------------------------
+1. Git
+--------------------------------------------------------------------------------
+Tasks involving git actions. Can span all turns or just one, but should be
+complex enough that both models take meaningfully different approaches.
+
+Avoid prompts that could cause race conditions (e.g., creating a branch by
+name). If possible, set up a private remote repository and interact with the
+remote as part of prompting.
+
+--------------------------------------------------------------------------------
+2. Ambiguous
+--------------------------------------------------------------------------------
+Tasks where the ideal model response is to ask for clarification rather than
+immediately produce code. Ask yourself: would a senior engineer stop and get
+clarification first? If yes, the prompt fits this category. Generally works best
+as the first turn.
+
+--------------------------------------------------------------------------------
+3. Discussion
+--------------------------------------------------------------------------------
+One or more prompts use Claude Code to answer questions without producing code.
+Should be challenging questions where model response quality has significant
+variance. Ideally requires knowledge of the repo to answer well. Can be
+standalone or Turn 1 of a code-change conversation.
+
+--------------------------------------------------------------------------------
+4. Explaining
+--------------------------------------------------------------------------------
+One or more prompts ask the model to explain how specific code works, walk
+through a codebase, or make changes and clearly narrate what was done and why.
+Preferences reflect both the correctness of the explanation and how clear,
+useful, and understandable it was.
+
+Distinct from Discussion — Discussion is about reasoning through problems or
+tradeoffs; Explaining is about asking how existing code or a change works.
+
+--------------------------------------------------------------------------------
+5. Code Review
+--------------------------------------------------------------------------------
+One or more prompts ask for a code review. Use your judgement on scope —
+reviewing a feature suite is typically the right level. A review of trivial code
+with no issues is not a useful prompt.
+
+--------------------------------------------------------------------------------
+6. Refactor
+--------------------------------------------------------------------------------
+One or more prompts relate to refactoring a portion of the codebase. Good fits:
+cleanup and dead code removal, performance-motivated restructuring,
+consolidating duplicated logic, improving naming and readability without
+changing behavior.
+
+--------------------------------------------------------------------------------
+7. Greenfield
+--------------------------------------------------------------------------------
+Task starts from an empty repository. Use your own creativity or draw inspiration
+from an existing PR to prompt Claude Code to build something from scratch.
+
+You do not need to select a PR if using your own creativity.
+
+--------------------------------------------------------------------------------
+8. Bug Fix
+--------------------------------------------------------------------------------
+One or more prompts ask the model to identify and fix a specific bug or class of
+bugs. The bug should be concrete and reproducible — avoid prompts too vague to
+evaluate whether the fix is correct.
+
+--------------------------------------------------------------------------------
+9. Chore
+--------------------------------------------------------------------------------
+Maintenance work that does not change external behavior — dependency updates,
+configuration changes, build system fixes, or similar housekeeping. Should still be
+complex enough that there is a meaningful difference in how the two models
+approach it.
+
+--------------------------------------------------------------------------------
+10. Documentation
+--------------------------------------------------------------------------------
+One or more prompts ask the model to write, update, or improve documentation —
+inline comments, docstrings, README files, API docs, or similar. Should be
+challenging enough that model quality varies.
+
+--------------------------------------------------------------------------------
+11. New Feature
+--------------------------------------------------------------------------------
+One or more prompts ask the model to add entirely new functionality to an existing
+repository. Distinct from Greenfield (empty repo) and Feature Extension
+(expanding existing functionality).
+
+--------------------------------------------------------------------------------
+12. Performance
+--------------------------------------------------------------------------------
+One or more prompts ask the model to improve performance of existing code —
+reducing latency, memory usage, or computational cost. Should have a clear
+success condition.
+
+--------------------------------------------------------------------------------
+13. Testing and QA
+--------------------------------------------------------------------------------
+One or more prompts ask the model to write, improve, or extend tests for existing
+code. Distinct from Code Review — this involves actually implementing test
+changes, not recommending them.
+
+--------------------------------------------------------------------------------
+14. Other
+--------------------------------------------------------------------------------
+Use only when the task genuinely does not fit any of the above. If unsure, check
+in the channel before submitting.
+
+================================================================================
+END OF PR SELECTION GUIDE
+================================================================================

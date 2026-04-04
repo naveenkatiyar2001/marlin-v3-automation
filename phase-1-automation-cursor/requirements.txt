@@ -1,0 +1,4 @@
+# Marlin V3 Phase 1+2 Automation (Cursor-Native)
+# Python 3.10+ required
+# All dependencies are stdlib -- nothing to install.
+# GitHub CLI (gh) is required: brew install gh && gh auth login

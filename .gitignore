@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Runtime data (regenerated each run)
+phase-1-automation/data/*.json
+phase-1-automation/data/*.md
+phase-1-automation-cursor/data/*.json
+wsl/phase1/data/*.json
+
+# Bridge runtime data (regenerated each session)
+phase-3-automation/.marlin-bridge/live_bridge.json
+phase-3-automation/.marlin-bridge/last_error.txt
+phase-3-automation/.marlin-bridge/repo_context.json
+phase-3-automation/.marlin-bridge/CLAUDE_md_content.txt
+phase-3-automation/.marlin-bridge/review_data.json
+phase-3-automation/.marlin-bridge/evaluation_answers.json
+phase-3-automation/.marlin-bridge/evaluation_answers_formatted.txt
+phase-3-automation/.marlin-bridge/survey_answers.txt
+wsl/phase3/.marlin-bridge/live_bridge.json
+wsl/phase3/.marlin-bridge/last_error.txt
+wsl/phase3/.marlin-bridge/*.json
+wsl/phase3/.marlin-bridge/*.txt
+
+# Task workspaces (large repo downloads, per-task)
+phase-3-automation/marlin-workspace/
+wsl/phase3/marlin-workspace/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated (can regenerate with md_to_pdf.py)
+Marlin_V3_Master_Guide.pdf
+
+# Converter script (utility, not part of the package)
+md_to_pdf.py
+
+# Archives
+*.zip
+
+# Context files (personal notes, not part of package)
+marlin_task_context.md
+phase3_automation_context.md
+
+# Cursor internal
+.cursor/

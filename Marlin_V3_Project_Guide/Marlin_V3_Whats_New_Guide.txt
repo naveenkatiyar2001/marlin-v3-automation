@@ -1,0 +1,187 @@
+================================================================================
+MARLIN V3 — WHAT'S NEW IN V3 GUIDE
+================================================================================
+Source: Marlin EC Training — What's new in V3.pdf
+================================================================================
+A summary of key changes from Marlin V2 to V3.
+
+This page summarises divergences and new requirements in V3. Where V3 supersedes V2,
+V3 rules apply. Where content is marked "V2 Only", those rules still apply in V2 but
+have not been carried forward to V3.
+
+
+================================================================================
+NEW: MARLIN-SUBMISSION-CHECKER-V3 (OPTIONAL BUT RECOMMENDED)
+================================================================================
+Catch common issues before you submit — justification mismatches, unexplained
+ratings, prompt scope drift, and more. See the Submission Checker guide for details.
+
+
+================================================================================
+PR SELECTION CHANGES
+================================================================================
+
+New languages supported
+  V2 was limited to Python-only repositories. V3 expands to: Python,
+  JavaScript/TypeScript, Go, Rust, Java, and C++. More languages may be added later.
+
+Prompt categories required
+  Every V3 submission must include at least one prompt fitting a defined category:
+  Git, Ambiguous, Discussion, Explaining, Code Review, Refactor, Greenfield, Bug Fix,
+  Chore, Documentation, New Feature, Performance, Testing and QA, or Other.
+  Submissions without a matching category will be rejected.
+
+
+================================================================================
+PROMPT PREPARATION CHANGES
+================================================================================
+
+Phased implementation now permitted (V3 supersedes V2)
+  V2: Turn 1 must be a complete technical specification encompassing all scope. Any
+  requirement foreseeable at Turn 1 that appears later is drip-feeding and a rejection
+  reason.
+
+  V3: The initial prompt is no longer required to include the full scope. It is
+  acceptable to implement core logic in Turn 1 and introduce remaining related
+  functionality (missing edge cases, tests, secondary features) in later turns — as long
+  as each turn advances the implementation concretely.
+
+Verifiable prompts no longer strictly required (V3 supersedes V2)
+  V2: Claims about behaviour must be testable; descriptions of edge cases, tests, and
+  acceptance criteria must align.
+
+  V3: Verifiable prompts are strongly encouraged but no longer mandatory, provided the
+  acceptance criteria field explicitly describes expected behaviour, signals for judging
+  correctness, and what counts as incomplete or incorrect. Open-ended prompts are fine
+  as long as multiple senior engineers would agree on what is being asked.
+
+  Important: Open-ended does not mean lazy. Reviewers will closely check the "What is
+  the ideal response?" field to ensure there is still a clear and correct intended
+  direction. An intentionally open-ended prompt should be challengingly open — not vague
+  because the author was not sure what they wanted.
+
+Conversations can span multiple prompt types
+  During Prompt Prep, you only need to ensure your initial prompt fits the category (or
+  categories) you selected. Follow-up turns will naturally introduce different types of
+  work — a Discussion turn may lead into Code Review; a Bug Fix may require
+  Documentation. You do not need to predict or declare every category upfront.
+  Reviewers will account for category evolution during final review.
+
+Avoid over-prescriptive prompts
+  New V3 guidance: do not micromanage every implementation step. The right target is a
+  task that would take a competent engineer roughly 6–8 hours to complete. Describe the
+  problem and what success looks like — leave space for the model to figure out how to
+  get there. Over-prescriptive prompts are now a rejection reason.
+
+
+================================================================================
+EXECUTION (CLI) CHANGES
+================================================================================
+
+CLAUDE.md file required for all repo tasks
+  Every task involving a repository must have a CLAUDE.md file in place before running
+  the CLI. If the repo already contains one, use it (with any targeted additions you
+  need). If not, you must create one yourself — either manually or using a separate
+  Claude Code instance. Do not use the claude-hfi tasking tool to generate the CLAUDE.md.
+
+Critical CLAUDE.md workflow — read before starting
+  1. Launch HFI before creating CLAUDE.md
+     If you have any pending changes, claude-hfi --vscode gets stuck and will not
+     launch. Order: clean main branch → launch HFI → then create CLAUDE.md.
+
+  2. Copy CLAUDE.md to the HFI cache — it won't auto-sync
+     If you create CLAUDE.md locally after attaching to tmux, HFI uses its own internal
+     cache and won't see the file. Copy from your local path (A) to the HFI cache (B).
+     TLDR: start tmux → attach → add CLAUDE.md to A → copy to B
+
+  3. Asking Claude Code to update CLAUDE.md targets your file
+     Once the file is copied to the cache, directing Claude Code to update it will
+     correctly target your file. HFI will not push it to the git remote.
+
+Dev environment must be set up before running CLI
+  New V3 requirement: install project dependencies, set up virtual environments, and
+  verify baseline tests pass before starting Turn 1. Do not penalise a model for failing
+  to install dependencies if the environment was not configured beforehand — that is a
+  setup issue, not a model deficiency.
+
+Related functionality may be introduced in later turns (V3 supersedes V2)
+  V2: Follow-up turns must address mistakes from Turn 1. New core requirements cannot
+  appear in later turns.
+
+  V3: Because Turn 1 no longer needs full scope, it is acceptable to add missing edge
+  cases, tests, or secondary features in later turns — as long as each turn advances the
+  implementation concretely and remains relevant to the original task.
+
+
+================================================================================
+NEW STEPS (V3 ONLY)
+================================================================================
+
+Step 5 — Review diffs and model traces
+  V3 requires you to review the code diff line-by-line for each trajectory, review
+  model traces to evaluate reasoning and actions, and run the code to verify it works.
+  Key questions: Did it actually run tests? Did it investigate root cause or patch
+  symptoms? Did it avoid risky actions? Did it accurately report what it changed?
+
+Step 6 — Structured evaluation writeup
+  V3 requires a formal evaluation writeup covering 5 required text fields (senior
+  engineer expectations, detailed strengths and weaknesses for each model) and 11 axis
+  questions (6.1–6.11) covering correctness, code quality, direction-following, scope
+  sizing, safety, self-reporting accuracy, judgment, verification, question-asking
+  discipline, engineering process, and communication.
+
+  Every scoring decision that results in a preference (any rating other than "no
+  difference") must include explicit written justification — with specific references to
+  files, functions, or test output. Vague or summary-level justifications are not
+  sufficient.
+
+Step 8 — Claim and submit on Snorkel platform
+  Navigate to Marlin-Prompt-Review V3 on the Snorkel platform. Claim the task, paste the
+  required information (PR URL, evaluation writeup, ratings, justifications), and
+  submit.
+
+  Note: submissions cannot be edited after submission — if you submit early, skip the
+  task and restart the workflow.
+
+
+================================================================================
+RATING & JUSTIFICATION CHANGES
+================================================================================
+
+Compare models against each other, not against ideal output
+  SxS scores must reflect the relative difference between the two trajectories — not how
+  close either came to a perfect response. Even when both models fall short, rate the
+  relative difference. If Model A gets 60% correct and Model B gets 30%, the right
+  rating is A3 or A2 — not A4/B4.
+
+Match justification language to rating level
+  The strength of your written language must be consistent with your rating. A1/B1
+  requires language like "fails", "incorrect", "broken". A2/B2 requires "substantially
+  better", "missing key coverage". A3/B3: "better structured", "tighter scope". A4/B4:
+  "minor differences only", "functionally equivalent". Mismatches create ambiguity for
+  reviewers.
+
+Evaluative strengths fields (not descriptive)
+  Strengths fields must explain why something matters in context of the rating — not
+  just describe that it happened.
+
+  Weak: "Model A added tests."
+  Strong: "Model A added regression coverage in tests/test_search.py::test_non_ascii_query
+  — without this test, a future refactor could silently reintroduce the bug."
+
+Key-axis field required for A1, A2, B1, B2
+  Whenever you rate A1, A2, B1, or B2, you must complete the key-axis field identifying
+  the dimension(s) that drove the preference — e.g. correctness, test coverage, scope
+  control, root cause handling, or accuracy of self-reporting. This can be one dimension
+  or multiple if several axes contributed. A single sentence is sufficient.
+
+
+================================================================================
+NEXT STEPS
+================================================================================
+Ready to review the full V3 guides? Start with PR Selection to see the new categories
+and language support (see PR Selection guide / training hub).
+
+================================================================================
+END OF WHAT'S NEW IN V3 GUIDE
+================================================================================
