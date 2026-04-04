@@ -942,9 +942,9 @@ echo ""
 
 ask "Do you have the Cleansed Repository link from your approval email?"
 echo ""
-echo "    1) ${GREEN}Yes${NC} — I have the tarball URL (paste it)"
-echo "    2) ${YELLOW}N/A${NC} — My email shows N/A (I'll provide the PR URL instead)"
-echo "    3) ${BLUE}Already unpacked${NC} — I already have the repo directory"
+echo -e "    ${CYAN}1${NC}) ${GREEN}Yes${NC} — I have the tarball URL (paste it)"
+echo -e "    ${CYAN}2${NC}) ${YELLOW}N/A${NC} — My email shows N/A (I'll provide the PR URL instead)"
+echo -e "    ${CYAN}3${NC}) ${BLUE}Already unpacked${NC} — I already have the repo directory"
 echo ""
 read -rp "  Choice [1/2/3]: " tarball_choice
 echo ""
