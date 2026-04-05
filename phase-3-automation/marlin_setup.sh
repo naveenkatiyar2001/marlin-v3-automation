@@ -1352,9 +1352,39 @@ case "$KNOWN_REPO" in
     react)
         info "React monorepo (yarn workspaces)."
         ensure_node_version || true
-        PKG_MGR=$(detect_pkg_manager)
-        if ensure_pkg_manager "$PKG_MGR"; then
-            run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
+
+        # React uses yarn classic (v1) — corepack yarn may install v3+ which breaks
+        YARN_VER=""
+        if command -v yarn &>/dev/null; then
+            YARN_VER=$(yarn --version 2>/dev/null | head -1)
+        fi
+
+        # If yarn is v2+ (berry), React needs classic v1
+        if [[ -n "$YARN_VER" && ! "$YARN_VER" =~ ^1\. ]]; then
+            warn "React requires yarn classic (v1) but found yarn $YARN_VER"
+            if command -v npm &>/dev/null; then
+                info "Installing yarn classic via npm..."
+                npm install -g yarn@1 2>&1 | tail -3
+                YARN_VER=$(yarn --version 2>/dev/null | head -1)
+                ok "Now using yarn $YARN_VER"
+            fi
+        fi
+
+        if ! command -v yarn &>/dev/null; then
+            ensure_pkg_manager "yarn"
+        fi
+
+        # React install: yarn install (no --frozen-lockfile, can break on older lockfiles)
+        info "Installing React dependencies (this may take several minutes)..."
+        if yarn install 2>&1 | tail -20; then
+            INSTALL_OK=true
+            ok "React dependencies installed."
+        else
+            warn "yarn install failed."
+            echo "  Common fixes:"
+            echo -e "    ${CYAN}nvm use${NC}  (if .nvmrc exists)"
+            echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}  (slow network)"
+            echo -e "    ${CYAN}rm -rf node_modules && yarn install${NC}  (fresh install)"
         fi
         TEST_CMD="yarn test"
         ;;
@@ -1425,11 +1455,53 @@ case "$KNOWN_REPO" in
         ;;
 
     vscode)
-        info "VS Code repo (TypeScript)."
+        info "VS Code repo (TypeScript, native modules)."
         ensure_node_version || true
-        PKG_MGR=$(detect_pkg_manager)
-        if ensure_pkg_manager "$PKG_MGR"; then
-            run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
+
+        # VS Code needs specific build tools for native modules
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            command -v python3 &>/dev/null || { warn "python3 needed for node-gyp"; }
+            if ! xcode-select -p &>/dev/null 2>&1; then
+                warn "Xcode Command Line Tools needed for native modules."
+                echo -e "    ${CYAN}xcode-select --install${NC}"
+            fi
+        elif command -v apt-get &>/dev/null; then
+            # Linux/WSL: ensure build-essential for node-gyp
+            dpkg -l build-essential &>/dev/null 2>&1 || {
+                info "Installing build-essential for native modules..."
+                sudo apt-get install -y build-essential python3 2>&1 | tail -3
+            }
+        fi
+
+        if ! command -v yarn &>/dev/null; then
+            ensure_pkg_manager "yarn"
+        fi
+
+        # VS Code install with network timeout (large repo, many deps)
+        info "Installing VS Code dependencies (this may take 5-10 minutes)..."
+        if yarn install --network-timeout 600000 2>&1 | tail -20; then
+            INSTALL_OK=true
+            ok "VS Code dependencies installed."
+        else
+            warn "yarn install failed in Cursor terminal."
+
+            # macOS EPERM fallback
+            if [[ "$(uname -s)" == "Darwin" ]] && command -v osascript &>/dev/null; then
+                info "Retrying via Terminal.app (bypasses macOS TCC)..."
+                osascript -e "tell application \"Terminal\" to do script \"cd '$(pwd)' && yarn install --network-timeout 600000\"" 2>/dev/null || true
+                echo ""
+                echo -e "  ${YELLOW}Watch the Terminal.app window for progress.${NC}"
+                ask "Press Enter once install finishes in Terminal.app."
+                wait_enter
+                [[ -d "node_modules" ]] && INSTALL_OK=true
+            fi
+
+            if [[ "$INSTALL_OK" != true ]]; then
+                echo "  Common fixes:"
+                echo -e "    ${CYAN}nvm use 20${NC}  (VS Code typically needs Node 20.x)"
+                echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}"
+                echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+            fi
         fi
         TEST_CMD="yarn test"
         ;;

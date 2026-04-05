@@ -894,13 +894,55 @@ case "$KNOWN_REPO" in
         INSTALL_OK=true
         ;;
     vscode)
+        info "VS Code repo (TypeScript, native modules)."
         ensure_node_version || true
-        PKG_MGR=$(detect_pkg_manager)
-        ensure_pkg_manager "$PKG_MGR" || true
-        run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
+
+        # VS Code needs build-essential for node-gyp native modules
+        dpkg -l build-essential &>/dev/null 2>&1 || {
+            info "Installing build tools for native modules..."
+            sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev libsecret-1-dev 2>&1 | tail -5
+        }
+
+        command -v yarn &>/dev/null || ensure_pkg_manager "yarn"
+
+        info "Installing VS Code dependencies (5-10 minutes)..."
+        if yarn install --network-timeout 600000 2>&1 | tail -20; then
+            INSTALL_OK=true
+            ok "VS Code dependencies installed."
+        else
+            warn "yarn install failed."
+            echo "  Common fixes:"
+            echo -e "    ${CYAN}nvm use 20${NC}  (VS Code needs Node 20.x)"
+            echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}"
+            echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+        fi
         TEST_CMD="yarn test"
         ;;
-    react|node-monorepo)
+    react)
+        info "React monorepo (yarn classic workspaces)."
+        ensure_node_version || true
+
+        # React needs yarn classic (v1), not berry (v3+)
+        YARN_VER=""
+        command -v yarn &>/dev/null && YARN_VER=$(yarn --version 2>/dev/null | head -1)
+        if [[ -n "$YARN_VER" && ! "$YARN_VER" =~ ^1\. ]]; then
+            warn "React requires yarn v1 but found yarn $YARN_VER"
+            command -v npm &>/dev/null && { npm install -g yarn@1 2>&1 | tail -3; ok "Switched to yarn $(yarn --version 2>/dev/null)"; }
+        fi
+        command -v yarn &>/dev/null || ensure_pkg_manager "yarn"
+
+        info "Installing React dependencies..."
+        if yarn install 2>&1 | tail -20; then
+            INSTALL_OK=true
+            ok "React dependencies installed."
+        else
+            warn "yarn install failed."
+            echo -e "    ${CYAN}nvm use${NC} / ${CYAN}rm -rf node_modules && yarn install${NC}"
+        fi
+        TEST_CMD="yarn test"
+        ;;
+    node-monorepo)
+        ensure_node_version || true
         PKG_MGR=$(detect_pkg_manager)
         ensure_pkg_manager "$PKG_MGR" || true
         run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
