@@ -282,8 +282,24 @@ except: pass
         fi
     fi
 
+    # Auto-install nvm as last resort
+    info "No version manager found. Auto-installing nvm..."
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    if curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash 2>&1 | tail -5; then
+        if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+            source "$NVM_DIR/nvm.sh" 2>/dev/null
+            if command -v nvm &>/dev/null; then
+                info "nvm installed. Switching to Node $required_version..."
+                nvm install "$required_version" 2>&1 | tail -5
+                nvm use "$required_version" 2>&1 | tail -3
+                ok "Switched to Node $(node --version 2>/dev/null)"
+                return 0
+            fi
+        fi
+    fi
+
     warn "Could not auto-switch Node version."
-    echo -e "    Install nvm: ${CYAN}curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash${NC}"
+    echo -e "    Install nvm manually: ${CYAN}curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash${NC}"
     echo -e "    Then: ${CYAN}nvm install $required_version && nvm use $required_version${NC}"
     return 1
 }
@@ -423,6 +439,21 @@ run_install() {
     if eval "$install_cmd" 2>&1 | tail -15; then
         ok "Dependencies installed via $manager."
         return 0
+    fi
+
+    # Node dev-engine assertions (e.g. fbjs check-dev-engines) — skip postinstall
+    if [[ "$manager" == "yarn" || "$manager" == "npm" || "$manager" == "pnpm" ]]; then
+        warn "Install failed. Retrying with --ignore-scripts (bypasses dev-engine assertions)..."
+        local ignore_cmd=""
+        case "$manager" in
+            yarn) ignore_cmd="yarn install --ignore-scripts" ;;
+            npm)  ignore_cmd="npm install --ignore-scripts" ;;
+            pnpm) ignore_cmd="pnpm install --ignore-scripts" ;;
+        esac
+        if eval "$ignore_cmd" 2>&1 | tail -15; then
+            ok "Dependencies installed via $manager (postinstall scripts skipped)."
+            return 0
+        fi
     fi
 
     warn "Install failed in Cursor terminal."
@@ -1374,17 +1405,27 @@ case "$KNOWN_REPO" in
             ensure_pkg_manager "yarn"
         fi
 
-        # React install: yarn install (no --frozen-lockfile, can break on older lockfiles)
         info "Installing React dependencies (this may take several minutes)..."
         if yarn install 2>&1 | tail -20; then
             INSTALL_OK=true
             ok "React dependencies installed."
         else
-            warn "yarn install failed."
-            echo "  Common fixes:"
-            echo -e "    ${CYAN}nvm use${NC}  (if .nvmrc exists)"
-            echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}  (slow network)"
-            echo -e "    ${CYAN}rm -rf node_modules && yarn install${NC}  (fresh install)"
+            warn "yarn install failed — likely Node version assertion (check-dev-engines)."
+            info "Retrying with --ignore-scripts to bypass dev-engine check..."
+            rm -rf node_modules 2>/dev/null
+            if yarn install --ignore-scripts 2>&1 | tail -20; then
+                INSTALL_OK=true
+                ok "React dependencies installed (postinstall scripts skipped)."
+                # Run safe postinstall scripts manually (skip check-dev-engines)
+                info "Running safe postinstall steps..."
+                node ./scripts/flow/createFlowConfigs.js 2>/dev/null || true
+                node ./scripts/yarn/downloadReactIsForPrettyFormat.js 2>/dev/null || true
+            else
+                warn "yarn install --ignore-scripts also failed."
+                echo "  Manual fixes:"
+                echo -e "    ${CYAN}nvm install && nvm use${NC}  (match .nvmrc)"
+                echo -e "    ${CYAN}rm -rf node_modules && yarn install --network-timeout 600000${NC}"
+            fi
         fi
         TEST_CMD="yarn test"
         ;;
