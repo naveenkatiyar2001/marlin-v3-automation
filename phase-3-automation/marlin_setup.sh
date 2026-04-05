@@ -200,6 +200,94 @@ ensure_venv() {
     ok "Activated venv"
 }
 
+ensure_node_version() {
+    # Detect required Node version from repo config files
+    local required_version=""
+    if [[ -f ".nvmrc" ]]; then
+        required_version=$(cat .nvmrc | tr -d 'v \n\r')
+        info "Found .nvmrc requiring Node $required_version"
+    elif [[ -f ".node-version" ]]; then
+        required_version=$(cat .node-version | tr -d 'v \n\r')
+        info "Found .node-version requiring Node $required_version"
+    elif [[ -f "package.json" ]]; then
+        required_version=$(python3 -c "
+import json
+try:
+    d = json.load(open('package.json'))
+    engines = d.get('engines', {}).get('node', '')
+    if engines:
+        import re
+        m = re.search(r'(\d+)', engines)
+        if m: print(m.group(1))
+except: pass
+" 2>/dev/null)
+        [[ -n "$required_version" ]] && info "package.json engines.node requires v$required_version+"
+    fi
+
+    if [[ -z "$required_version" ]]; then
+        return 0
+    fi
+
+    local current_major=""
+    if command -v node &>/dev/null; then
+        current_major=$(node --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    fi
+    local required_major=$(echo "$required_version" | grep -oE '^[0-9]+')
+
+    if [[ "$current_major" == "$required_major" ]]; then
+        ok "Node version matches: $(node --version) (need v$required_major)"
+        return 0
+    fi
+
+    warn "Node mismatch: have v${current_major:-none}, need v$required_major"
+
+    # Try nvm
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh" 2>/dev/null
+        if command -v nvm &>/dev/null; then
+            info "Using nvm to switch to Node $required_version..."
+            nvm install "$required_version" 2>&1 | tail -5
+            nvm use "$required_version" 2>&1 | tail -3
+            ok "Switched to Node $(node --version 2>/dev/null)"
+            return 0
+        fi
+    fi
+
+    # Try fnm
+    if command -v fnm &>/dev/null; then
+        info "Using fnm to switch to Node $required_version..."
+        fnm install "$required_version" 2>&1 | tail -3
+        eval "$(fnm env)" 2>/dev/null
+        fnm use "$required_version" 2>&1 | tail -3
+        ok "Switched to Node $(node --version 2>/dev/null)"
+        return 0
+    fi
+
+    # Try Homebrew (macOS)
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v brew &>/dev/null; then
+        info "Installing Node $required_major via brew..."
+        brew install "node@$required_major" 2>&1 | tail -5
+        brew link --overwrite "node@$required_major" 2>/dev/null || true
+        export PATH="$(brew --prefix)/opt/node@$required_major/bin:$PATH"
+        [[ -n "$(command -v node 2>/dev/null)" ]] && { ok "Installed Node $(node --version)"; return 0; }
+    fi
+
+    # Try apt (Linux/WSL)
+    if command -v apt-get &>/dev/null; then
+        info "Installing Node $required_major via apt..."
+        if [[ -f /etc/apt/sources.list.d/nodesource.list ]] || curl -fsSL "https://deb.nodesource.com/setup_${required_major}.x" 2>/dev/null | sudo -E bash - 2>&1 | tail -5; then
+            sudo apt-get install -y nodejs 2>&1 | tail -3
+            [[ -n "$(command -v node 2>/dev/null)" ]] && { ok "Installed Node $(node --version)"; return 0; }
+        fi
+    fi
+
+    warn "Could not auto-switch Node version."
+    echo -e "    Install nvm: ${CYAN}curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash${NC}"
+    echo -e "    Then: ${CYAN}nvm install $required_version && nvm use $required_version${NC}"
+    return 1
+}
+
 ensure_pkg_manager() {
     local manager="$1"
 
@@ -212,10 +300,7 @@ ensure_pkg_manager() {
 
     case "$manager" in
         yarn)
-            if [[ "$(uname -s)" == "Darwin" ]] && command -v brew &>/dev/null; then
-                brew install yarn 2>&1 | tail -3 && command -v yarn &>/dev/null && {
-                    ok "$manager installed via brew"; return 0; }
-            fi
+            # First try corepack (modern, comes with Node 16.10+)
             if command -v corepack &>/dev/null; then
                 corepack enable 2>/dev/null && corepack prepare yarn@stable --activate 2>/dev/null && {
                     ok "$manager enabled via corepack"; return 0; }
@@ -223,6 +308,14 @@ ensure_pkg_manager() {
             if command -v npm &>/dev/null; then
                 npm install -g yarn 2>&1 | tail -3 && command -v yarn &>/dev/null && {
                     ok "$manager installed via npm"; return 0; }
+            fi
+            if [[ "$(uname -s)" == "Darwin" ]] && command -v brew &>/dev/null; then
+                brew install yarn 2>&1 | tail -3 && command -v yarn &>/dev/null && {
+                    ok "$manager installed via brew"; return 0; }
+            fi
+            if command -v apt-get &>/dev/null; then
+                sudo apt-get install -y yarn 2>&1 | tail -3 && command -v yarn &>/dev/null && {
+                    ok "$manager installed via apt"; return 0; }
             fi
             ;;
         pnpm)
@@ -302,9 +395,9 @@ run_install() {
     local install_cmd=""
 
     case "$manager" in
-        yarn)   install_cmd="yarn install" ;;
-        pnpm)   install_cmd="pnpm install" ;;
-        npm)    install_cmd="npm install" ;;
+        yarn)   install_cmd="yarn install --frozen-lockfile 2>/dev/null || yarn install --immutable 2>/dev/null || yarn install" ;;
+        pnpm)   install_cmd="pnpm install --frozen-lockfile 2>/dev/null || pnpm install" ;;
+        npm)    install_cmd="npm ci 2>/dev/null || npm install" ;;
         cargo)  install_cmd="cargo build" ;;
         go)     install_cmd="go mod download" ;;
         pipenv) install_cmd="pipenv install --dev" ;;
@@ -1258,6 +1351,7 @@ case "$KNOWN_REPO" in
 
     react)
         info "React monorepo (yarn workspaces)."
+        ensure_node_version || true
         PKG_MGR=$(detect_pkg_manager)
         if ensure_pkg_manager "$PKG_MGR"; then
             run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
@@ -1332,6 +1426,7 @@ case "$KNOWN_REPO" in
 
     vscode)
         info "VS Code repo (TypeScript)."
+        ensure_node_version || true
         PKG_MGR=$(detect_pkg_manager)
         if ensure_pkg_manager "$PKG_MGR"; then
             run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
@@ -1413,6 +1508,7 @@ case "$KNOWN_REPO" in
                 ;;
 
             node)
+                ensure_node_version || true
                 PKG_MGR=$(detect_pkg_manager)
                 if ensure_pkg_manager "$PKG_MGR"; then
                     run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true

@@ -282,6 +282,81 @@ self_heal() {
 }
 
 # --------------------------------------------------------------------------
+# Node Version Management
+# --------------------------------------------------------------------------
+ensure_node_version() {
+    local required_version=""
+    if [[ -f ".nvmrc" ]]; then
+        required_version=$(cat .nvmrc | tr -d 'v \n\r')
+        info "Found .nvmrc requiring Node $required_version"
+    elif [[ -f ".node-version" ]]; then
+        required_version=$(cat .node-version | tr -d 'v \n\r')
+        info "Found .node-version requiring Node $required_version"
+    elif [[ -f "package.json" ]]; then
+        required_version=$(python3 -c "
+import json
+try:
+    d = json.load(open('package.json'))
+    engines = d.get('engines', {}).get('node', '')
+    if engines:
+        import re
+        m = re.search(r'(\d+)', engines)
+        if m: print(m.group(1))
+except: pass
+" 2>/dev/null)
+        [[ -n "$required_version" ]] && info "package.json engines.node requires v$required_version+"
+    fi
+
+    [[ -z "$required_version" ]] && return 0
+
+    local current_major=""
+    command -v node &>/dev/null && current_major=$(node --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    local required_major=$(echo "$required_version" | grep -oE '^[0-9]+')
+
+    if [[ "$current_major" == "$required_major" ]]; then
+        ok "Node version matches: $(node --version) (need v$required_major)"
+        return 0
+    fi
+
+    warn "Node mismatch: have v${current_major:-none}, need v$required_major"
+
+    # Try nvm
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh" 2>/dev/null
+        if command -v nvm &>/dev/null; then
+            info "Using nvm to switch to Node $required_version..."
+            nvm install "$required_version" 2>&1 | tail -5
+            nvm use "$required_version" 2>&1 | tail -3
+            ok "Switched to Node $(node --version 2>/dev/null)"
+            return 0
+        fi
+    fi
+
+    # Try fnm
+    if command -v fnm &>/dev/null; then
+        fnm install "$required_version" 2>&1 | tail -3
+        eval "$(fnm env)" 2>/dev/null
+        fnm use "$required_version" 2>&1 | tail -3
+        ok "Switched to Node $(node --version 2>/dev/null)"
+        return 0
+    fi
+
+    # Try apt with NodeSource
+    if command -v apt-get &>/dev/null; then
+        info "Installing Node $required_major via NodeSource..."
+        curl -fsSL "https://deb.nodesource.com/setup_${required_major}.x" 2>/dev/null | sudo -E bash - 2>&1 | tail -5
+        sudo apt-get install -y nodejs 2>&1 | tail -3
+        [[ -n "$(command -v node 2>/dev/null)" ]] && { ok "Installed Node $(node --version)"; return 0; }
+    fi
+
+    warn "Could not auto-switch Node version."
+    echo -e "    Install nvm: ${CYAN}curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash${NC}"
+    echo -e "    Then: ${CYAN}nvm install $required_version && nvm use $required_version${NC}"
+    return 1
+}
+
+# --------------------------------------------------------------------------
 # Package Management (WSL/Linux: apt-based)
 # --------------------------------------------------------------------------
 ensure_pkg_manager() {
@@ -819,6 +894,7 @@ case "$KNOWN_REPO" in
         INSTALL_OK=true
         ;;
     vscode)
+        ensure_node_version || true
         PKG_MGR=$(detect_pkg_manager)
         ensure_pkg_manager "$PKG_MGR" || true
         run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
@@ -874,6 +950,7 @@ case "$KNOWN_REPO" in
                 command -v pytest &>/dev/null && TEST_CMD="pytest" || [[ -f "tox.ini" ]] && TEST_CMD="tox"
                 ;;
             node)
+                ensure_node_version || true
                 PKG_MGR=$(detect_pkg_manager)
                 ensure_pkg_manager "$PKG_MGR" && run_install "$PKG_MGR" "$(pwd)" && INSTALL_OK=true
                 [[ -f "package.json" ]] && grep -q '"test"' package.json 2>/dev/null && TEST_CMD="${PKG_MGR} test"
@@ -983,6 +1060,23 @@ step "3.8 — Download & Install CLI Binary"
 
 MARLIN_TOOLS_DIR="$HOME/marlin-tools"
 
+# Detect Windows username for path resolution
+WIN_USER=""
+if command -v cmd.exe &>/dev/null; then
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n' || true)
+fi
+if [[ -z "$WIN_USER" ]]; then
+    # Fallback: scan /mnt/c/Users for directories
+    for d in /mnt/c/Users/*/; do
+        local uname=$(basename "$d")
+        [[ "$uname" != "Public" && "$uname" != "Default" && "$uname" != "Default User" && "$uname" != "All Users" ]] && {
+            WIN_USER="$uname"; break; }
+    done
+fi
+
+WIN_DOWNLOADS=""
+[[ -n "$WIN_USER" ]] && WIN_DOWNLOADS="/mnt/c/Users/$WIN_USER/Downloads"
+
 if [[ -f "claude-hfi" && -x "claude-hfi" ]]; then
     ok "CLI binary exists: ./claude-hfi"
 elif [[ -f "$MARLIN_TOOLS_DIR/claude-hfi" && -x "$MARLIN_TOOLS_DIR/claude-hfi" ]]; then
@@ -992,29 +1086,102 @@ elif [[ -f "$MARLIN_TOOLS_DIR/claude-hfi" && -x "$MARLIN_TOOLS_DIR/claude-hfi" ]
 else
     ARCH=$(uname -m)
     RECOMMENDED="linux-amd64"
-    [[ "$ARCH" == "aarch64" ]] && RECOMMENDED="linux-arm64"
+    [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && RECOMMENDED="linux-arm64"
 
+    echo ""
     echo "  Download the CLI binary for: ${BOLD}$RECOMMENDED${NC}"
-    echo "  Then press Enter."
+    echo ""
+    echo -e "  ${BOLD}WSL path note:${NC}"
+    echo "  Your Windows Downloads folder is accessible at:"
+    if [[ -n "$WIN_DOWNLOADS" ]]; then
+        echo -e "    ${CYAN}$WIN_DOWNLOADS${NC}"
+    else
+        echo -e "    ${CYAN}/mnt/c/Users/<YourWindowsUsername>/Downloads${NC}"
+    fi
+    echo ""
+    echo "  After downloading in your browser, press Enter."
     wait_enter
 
+    # Search for binary in all possible locations
     FOUND=""
-    for f in ~/Downloads/linux-amd64 ~/Downloads/linux-arm64 ~/Downloads/claude-hfi \
-             /mnt/c/Users/*/Downloads/linux-amd64 /mnt/c/Users/*/Downloads/linux-arm64; do
-        if [[ -f "$f" ]]; then FOUND="$f"; break; fi
+    SEARCH_PATHS=(
+        # WSL home Downloads
+        "$HOME/Downloads/linux-amd64"
+        "$HOME/Downloads/linux-arm64"
+        "$HOME/Downloads/claude-hfi"
+        # Current directory
+        "./linux-amd64"
+        "./linux-arm64"
+    )
+
+    # Add Windows Downloads paths
+    if [[ -n "$WIN_DOWNLOADS" && -d "$WIN_DOWNLOADS" ]]; then
+        SEARCH_PATHS+=(
+            "$WIN_DOWNLOADS/linux-amd64"
+            "$WIN_DOWNLOADS/linux-arm64"
+            "$WIN_DOWNLOADS/claude-hfi"
+            "$WIN_DOWNLOADS/linux-amd64.exe"
+            "$WIN_DOWNLOADS/linux-arm64.exe"
+        )
+    fi
+
+    # Also scan all Windows user Downloads as fallback
+    for win_dl in /mnt/c/Users/*/Downloads; do
+        [[ -d "$win_dl" ]] && SEARCH_PATHS+=(
+            "$win_dl/linux-amd64"
+            "$win_dl/linux-arm64"
+            "$win_dl/claude-hfi"
+        )
+    done
+
+    # Also check Desktop (some people save there)
+    if [[ -n "$WIN_USER" ]]; then
+        SEARCH_PATHS+=(
+            "/mnt/c/Users/$WIN_USER/Desktop/linux-amd64"
+            "/mnt/c/Users/$WIN_USER/Desktop/linux-arm64"
+            "/mnt/c/Users/$WIN_USER/Desktop/claude-hfi"
+        )
+    fi
+
+    for f in "${SEARCH_PATHS[@]}"; do
+        if [[ -f "$f" ]]; then
+            FOUND="$f"
+            ok "Found binary at: $f"
+            break
+        fi
     done
 
     if [[ -n "$FOUND" ]]; then
         cp "$FOUND" "$(pwd)/claude-hfi"
         chmod +x claude-hfi
-        ok "Installed: ./claude-hfi (from $FOUND)"
+        ok "Installed: ./claude-hfi"
         mkdir -p "$MARLIN_TOOLS_DIR"
         cp claude-hfi "$MARLIN_TOOLS_DIR/claude-hfi"
         chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
         ok "Cached at ~/marlin-tools/"
     else
-        warn "Binary not found. Move it manually:"
-        echo -e "    ${CYAN}cp ~/Downloads/$RECOMMENDED ./claude-hfi && chmod +x claude-hfi${NC}"
+        warn "Binary not found automatically."
+        echo ""
+        echo "  Searched in:"
+        [[ -n "$WIN_DOWNLOADS" ]] && echo -e "    ${DIM}$WIN_DOWNLOADS${NC}"
+        echo -e "    ${DIM}$HOME/Downloads${NC}"
+        echo -e "    ${DIM}/mnt/c/Users/*/Downloads${NC}"
+        echo ""
+        echo "  Option 1 — paste the full path to the binary:"
+        read -rp "    Path (or press Enter to skip): " MANUAL_PATH
+        if [[ -n "$MANUAL_PATH" && -f "$MANUAL_PATH" ]]; then
+            cp "$MANUAL_PATH" "$(pwd)/claude-hfi"
+            chmod +x claude-hfi
+            ok "Installed from: $MANUAL_PATH"
+            mkdir -p "$MARLIN_TOOLS_DIR"
+            cp claude-hfi "$MARLIN_TOOLS_DIR/claude-hfi"
+            chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
+        else
+            echo ""
+            echo "  Option 2 — copy it manually:"
+            echo -e "    ${CYAN}cp /mnt/c/Users/$WIN_USER/Downloads/$RECOMMENDED ./claude-hfi${NC}"
+            echo -e "    ${CYAN}chmod +x claude-hfi${NC}"
+        fi
     fi
 fi
 
