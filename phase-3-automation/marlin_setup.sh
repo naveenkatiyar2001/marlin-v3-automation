@@ -241,25 +241,49 @@ except: pass
 
     warn "Node mismatch: have v${current_major:-none}, need v$required_major"
 
-    # Try nvm
+    # Helper: pipe kills nvm's PATH changes — must run nvm in current shell
+    _nvm_switch() {
+        local ver="$1"
+        nvm install "$ver" 2>&1
+        nvm use "$ver" 2>&1
+        # Verify the switch actually took effect
+        local new_major
+        new_major=$(node --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local want_major
+        want_major=$(echo "$ver" | grep -oE '^[0-9]+')
+        if [[ "$new_major" == "$want_major" ]]; then
+            ok "Switched to Node $(node --version)"
+            return 0
+        else
+            warn "nvm reported success but node is still v${new_major}. Forcing PATH..."
+            local nvm_node_bin
+            nvm_node_bin="$(nvm which "$ver" 2>/dev/null | xargs dirname 2>/dev/null)"
+            if [[ -n "$nvm_node_bin" && -d "$nvm_node_bin" ]]; then
+                export PATH="$nvm_node_bin:$PATH"
+                hash -r 2>/dev/null
+                ok "Forced PATH to $(node --version)"
+                return 0
+            fi
+            return 1
+        fi
+    }
+
+    # Try nvm (already installed)
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
         source "$NVM_DIR/nvm.sh" 2>/dev/null
         if command -v nvm &>/dev/null; then
             info "Using nvm to switch to Node $required_version..."
-            nvm install "$required_version" 2>&1 | tail -5
-            nvm use "$required_version" 2>&1 | tail -3
-            ok "Switched to Node $(node --version 2>/dev/null)"
-            return 0
+            _nvm_switch "$required_version" && return 0
         fi
     fi
 
     # Try fnm
     if command -v fnm &>/dev/null; then
         info "Using fnm to switch to Node $required_version..."
-        fnm install "$required_version" 2>&1 | tail -3
+        fnm install "$required_version" 2>&1
         eval "$(fnm env)" 2>/dev/null
-        fnm use "$required_version" 2>&1 | tail -3
+        fnm use "$required_version" 2>&1
         ok "Switched to Node $(node --version 2>/dev/null)"
         return 0
     fi
@@ -270,6 +294,7 @@ except: pass
         brew install "node@$required_major" 2>&1 | tail -5
         brew link --overwrite "node@$required_major" 2>/dev/null || true
         export PATH="$(brew --prefix)/opt/node@$required_major/bin:$PATH"
+        hash -r 2>/dev/null
         [[ -n "$(command -v node 2>/dev/null)" ]] && { ok "Installed Node $(node --version)"; return 0; }
     fi
 
@@ -285,16 +310,12 @@ except: pass
     # Auto-install nvm as last resort
     info "No version manager found. Auto-installing nvm..."
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-    if curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash 2>&1 | tail -5; then
-        if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-            source "$NVM_DIR/nvm.sh" 2>/dev/null
-            if command -v nvm &>/dev/null; then
-                info "nvm installed. Switching to Node $required_version..."
-                nvm install "$required_version" 2>&1 | tail -5
-                nvm use "$required_version" 2>&1 | tail -3
-                ok "Switched to Node $(node --version 2>/dev/null)"
-                return 0
-            fi
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash 2>&1
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh" 2>/dev/null
+        if command -v nvm &>/dev/null; then
+            info "nvm installed. Switching to Node $required_version..."
+            _nvm_switch "$required_version" && return 0
         fi
     fi
 
@@ -464,8 +485,12 @@ run_install() {
         local install_script="/tmp/marlin_install_$$.sh"
         cat > "$install_script" << INSTALLEOF
 #!/bin/bash
+# Source nvm so the correct Node version is used
+export NVM_DIR="\${NVM_DIR:-\$HOME/.nvm}"
+[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
 cd "$repo_dir"
-echo "Running: $install_cmd in \$(basename "\$(pwd)")..."
+nvm use 2>/dev/null
+echo "Node: \$(node --version 2>/dev/null) | Running: $install_cmd"
 $install_cmd
 echo ""
 echo "Install finished. Exit code: \$?"
@@ -1520,28 +1545,40 @@ case "$KNOWN_REPO" in
 
         # VS Code install with network timeout (large repo, many deps)
         info "Installing VS Code dependencies (this may take 5-10 minutes)..."
+        info "Node: $(node --version 2>/dev/null) | Yarn: $(yarn --version 2>/dev/null)"
         if yarn install --network-timeout 600000 2>&1 | tail -20; then
             INSTALL_OK=true
             ok "VS Code dependencies installed."
         else
-            warn "yarn install failed in Cursor terminal."
+            warn "yarn install failed. Retrying with --ignore-engines..."
+            rm -rf node_modules 2>/dev/null
+            if yarn install --network-timeout 600000 --ignore-engines 2>&1 | tail -20; then
+                INSTALL_OK=true
+                ok "VS Code dependencies installed (engine checks bypassed)."
+            else
+                warn "yarn install --ignore-engines also failed."
 
-            # macOS EPERM fallback
-            if [[ "$(uname -s)" == "Darwin" ]] && command -v osascript &>/dev/null; then
-                info "Retrying via Terminal.app (bypasses macOS TCC)..."
-                osascript -e "tell application \"Terminal\" to do script \"cd '$(pwd)' && yarn install --network-timeout 600000\"" 2>/dev/null || true
-                echo ""
-                echo -e "  ${YELLOW}Watch the Terminal.app window for progress.${NC}"
-                ask "Press Enter once install finishes in Terminal.app."
-                wait_enter
-                [[ -d "node_modules" ]] && INSTALL_OK=true
-            fi
+                # macOS EPERM fallback — source nvm in the new terminal
+                if [[ "$(uname -s)" == "Darwin" ]] && command -v osascript &>/dev/null; then
+                    info "Retrying via Terminal.app (bypasses macOS TCC)..."
+                    local nvm_setup=""
+                    if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+                        nvm_setup="export NVM_DIR='${NVM_DIR:-$HOME/.nvm}' && source \"\$NVM_DIR/nvm.sh\" && nvm use 2>/dev/null; "
+                    fi
+                    osascript -e "tell application \"Terminal\" to do script \"${nvm_setup}cd '$(pwd)' && yarn install --network-timeout 600000 --ignore-engines\"" 2>/dev/null || true
+                    echo ""
+                    echo -e "  ${YELLOW}Watch the Terminal.app window for progress.${NC}"
+                    ask "Press Enter once install finishes in Terminal.app."
+                    wait_enter
+                    [[ -d "node_modules" ]] && INSTALL_OK=true
+                fi
 
-            if [[ "$INSTALL_OK" != true ]]; then
-                echo "  Common fixes:"
-                echo -e "    ${CYAN}nvm use 20${NC}  (VS Code typically needs Node 20.x)"
-                echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}"
-                echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+                if [[ "$INSTALL_OK" != true ]]; then
+                    echo "  Manual fixes:"
+                    echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
+                    echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
+                    echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+                fi
             fi
         fi
         TEST_CMD="yarn test"

@@ -320,24 +320,48 @@ except: pass
 
     warn "Node mismatch: have v${current_major:-none}, need v$required_major"
 
-    # Try nvm
+    # Helper: pipe kills nvm's PATH changes — must run nvm in current shell
+    _nvm_switch() {
+        local ver="$1"
+        nvm install "$ver" 2>&1
+        nvm use "$ver" 2>&1
+        local new_major
+        new_major=$(node --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local want_major
+        want_major=$(echo "$ver" | grep -oE '^[0-9]+')
+        if [[ "$new_major" == "$want_major" ]]; then
+            ok "Switched to Node $(node --version)"
+            return 0
+        else
+            warn "nvm reported success but node is still v${new_major}. Forcing PATH..."
+            local nvm_node_bin
+            nvm_node_bin="$(nvm which "$ver" 2>/dev/null | xargs dirname 2>/dev/null)"
+            if [[ -n "$nvm_node_bin" && -d "$nvm_node_bin" ]]; then
+                export PATH="$nvm_node_bin:$PATH"
+                hash -r 2>/dev/null
+                ok "Forced PATH to $(node --version)"
+                return 0
+            fi
+            return 1
+        fi
+    }
+
+    # Try nvm (already installed)
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
         source "$NVM_DIR/nvm.sh" 2>/dev/null
         if command -v nvm &>/dev/null; then
             info "Using nvm to switch to Node $required_version..."
-            nvm install "$required_version" 2>&1 | tail -5
-            nvm use "$required_version" 2>&1 | tail -3
-            ok "Switched to Node $(node --version 2>/dev/null)"
-            return 0
+            _nvm_switch "$required_version" && return 0
         fi
     fi
 
     # Try fnm
     if command -v fnm &>/dev/null; then
-        fnm install "$required_version" 2>&1 | tail -3
+        info "Using fnm to switch to Node $required_version..."
+        fnm install "$required_version" 2>&1
         eval "$(fnm env)" 2>/dev/null
-        fnm use "$required_version" 2>&1 | tail -3
+        fnm use "$required_version" 2>&1
         ok "Switched to Node $(node --version 2>/dev/null)"
         return 0
     fi
@@ -353,16 +377,12 @@ except: pass
     # Auto-install nvm as last resort
     info "No version manager found. Auto-installing nvm..."
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-    if curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash 2>&1 | tail -5; then
-        if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-            source "$NVM_DIR/nvm.sh" 2>/dev/null
-            if command -v nvm &>/dev/null; then
-                info "nvm installed. Switching to Node $required_version..."
-                nvm install "$required_version" 2>&1 | tail -5
-                nvm use "$required_version" 2>&1 | tail -3
-                ok "Switched to Node $(node --version 2>/dev/null)"
-                return 0
-            fi
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash 2>&1
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh" 2>/dev/null
+        if command -v nvm &>/dev/null; then
+            info "nvm installed. Switching to Node $required_version..."
+            _nvm_switch "$required_version" && return 0
         fi
     fi
 
@@ -937,15 +957,23 @@ case "$KNOWN_REPO" in
         command -v yarn &>/dev/null || ensure_pkg_manager "yarn"
 
         info "Installing VS Code dependencies (5-10 minutes)..."
+        info "Node: $(node --version 2>/dev/null) | Yarn: $(yarn --version 2>/dev/null)"
         if yarn install --network-timeout 600000 2>&1 | tail -20; then
             INSTALL_OK=true
             ok "VS Code dependencies installed."
         else
-            warn "yarn install failed."
-            echo "  Common fixes:"
-            echo -e "    ${CYAN}nvm use 20${NC}  (VS Code needs Node 20.x)"
-            echo -e "    ${CYAN}yarn install --network-timeout 600000${NC}"
-            echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+            warn "yarn install failed. Retrying with --ignore-engines..."
+            rm -rf node_modules 2>/dev/null
+            if yarn install --network-timeout 600000 --ignore-engines 2>&1 | tail -20; then
+                INSTALL_OK=true
+                ok "VS Code dependencies installed (engine checks bypassed)."
+            else
+                warn "yarn install --ignore-engines also failed."
+                echo "  Manual fixes:"
+                echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
+                echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
+                echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
+            fi
         fi
         TEST_CMD="yarn test"
         ;;
