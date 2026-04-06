@@ -142,7 +142,7 @@ global_error_handler() {
     echo -e "  ${RED}${BOLD}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    if [[ -f "${LIVE_JSON:-/dev/null}" ]]; then
+    if [[ "${IS_CURSOR:-false}" == true ]] && [[ -f "${LIVE_JSON:-/dev/null}" ]]; then
         python3 "${SCRIPT_DIR}/marlin_bridge.py" write-heal \
             --desc "Script error at line $line_num" \
             --cmd "$failed_cmd" \
@@ -220,6 +220,18 @@ self_heal() {
 
         echo "$output" | tail -10
         warn "$description — failed (attempt $attempt/$HEAL_MAX_RETRIES)"
+
+        # Non-Cursor mode: skip bridge, just retry or ask for manual fix
+        if [[ "${IS_CURSOR:-false}" != true ]]; then
+            echo ""
+            echo -e "  ${YELLOW}Self-healing requires Cursor IDE. Running without auto-fix.${NC}"
+            echo -e "  ${DIM}Failed command: $cmd${NC}"
+            if [[ $attempt -lt $HEAL_MAX_RETRIES ]]; then
+                ask "Fix the issue and press Enter to retry."
+                wait_enter
+            fi
+            continue
+        fi
 
         local err_file="$BRIDGE_DIR/last_error.txt"
         echo "$output" > "$err_file"
@@ -677,10 +689,23 @@ ok "Task workspace: $TASK_DIR"
 TASK_BRIDGE_DIR="$TASK_DIR/.task-bridge"
 mkdir -p "$TASK_BRIDGE_DIR"
 
+# Detect IDE — Cursor has self-healing, VS Code/other don't
+IS_CURSOR=false
+if [[ -d "$HOME/.cursor" ]] || [[ -n "${CURSOR_TRACE_ID:-}" ]] || pgrep -f "Cursor" &>/dev/null; then
+    IS_CURSOR=true
+fi
+
 bridge_init
 LIVE_JSON="$BRIDGE_DIR/live_bridge.json"
 python3 "$SCRIPT_DIR/marlin_bridge.py" init-session --task "$TASK_NAME" 2>/dev/null || true
-ok "Live bridge: $LIVE_JSON"
+
+if [[ "$IS_CURSOR" == true ]]; then
+    ok "Live bridge: $LIVE_JSON"
+    echo -e "  ${DIM}Self-healing enabled (Cursor detected).${NC}"
+else
+    ok "IDE: VS Code / other (not Cursor)"
+    echo -e "  ${DIM}Self-healing requires Cursor. Running in standalone mode.${NC}"
+fi
 divider
 
 REPO_DIR=""
@@ -1447,10 +1472,14 @@ if [[ -f "CLAUDE.md" ]]; then
 fi
 
 if [[ "$CLAUDE_EXISTS" == false ]]; then
-    info "Generating CLAUDE.md via Cursor bridge..."
-    python3 "$SCRIPT_DIR/marlin_bridge.py" repo-context --path "$(pwd)" > "$TASK_BRIDGE_DIR/repo_context.json" 2>/dev/null || true
+    CLAUDE_GENERATED=false
 
-    python3 -c "
+    # Cursor mode: use the bridge for AI-powered CLAUDE.md generation
+    if [[ "${IS_CURSOR:-false}" == true ]]; then
+        info "Generating CLAUDE.md via Cursor bridge..."
+        python3 "$SCRIPT_DIR/marlin_bridge.py" repo-context --path "$(pwd)" > "$TASK_BRIDGE_DIR/repo_context.json" 2>/dev/null || true
+
+        python3 -c "
 import json
 try:
     with open('$LIVE_JSON', 'r') as f:
@@ -1469,21 +1498,24 @@ with open('$LIVE_JSON', 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null || true
 
-    echo -e "  ${YELLOW}Switch to Cursor and send a message to trigger generation.${NC}"
+        echo -e "  ${YELLOW}Switch to Cursor and send a message to trigger generation.${NC}"
 
-    CLAUDE_WAIT=0
-    while [[ $CLAUDE_WAIT -lt 180 ]]; do
-        if [[ -f "$CLAUDE_TARGET" && $(wc -c < "$CLAUDE_TARGET" 2>/dev/null || echo 0) -gt 50 ]]; then
-            ok "CLAUDE.md generated."; break
-        fi
-        sleep 3; CLAUDE_WAIT=$((CLAUDE_WAIT + 3))
-        printf "\r  ⟳ Waiting for CLAUDE.md... (%ds / 180s)  " "$CLAUDE_WAIT"
-    done
-    echo ""
+        CLAUDE_WAIT=0
+        while [[ $CLAUDE_WAIT -lt 180 ]]; do
+            if [[ -f "$CLAUDE_TARGET" && $(wc -c < "$CLAUDE_TARGET" 2>/dev/null || echo 0) -gt 50 ]]; then
+                CLAUDE_GENERATED=true; ok "CLAUDE.md generated."; break
+            fi
+            sleep 3; CLAUDE_WAIT=$((CLAUDE_WAIT + 3))
+            printf "\r  ⟳ Waiting for CLAUDE.md... (%ds / 180s)  " "$CLAUDE_WAIT"
+        done
+        echo ""
+    else
+        info "Not running in Cursor — using quick-scan to generate CLAUDE.md..."
+    fi
 
-    # Quick-scan fallback
-    if [[ ! -f "$CLAUDE_TARGET" || $(wc -c < "$CLAUDE_TARGET" 2>/dev/null || echo 0) -lt 50 ]]; then
-        warn "Cursor didn't generate in time. Using quick-scan fallback."
+    # Quick-scan fallback (always in non-Cursor mode, timeout fallback in Cursor mode)
+    if [[ "$CLAUDE_GENERATED" != true ]]; then
+        [[ "${IS_CURSOR:-false}" == true ]] && warn "Cursor didn't generate in time. Using quick-scan fallback."
         QS_NAME=$(basename "$(pwd)")
         QS_INSTALL="[Fill in install command]"
         case ${LANG_DETECTED:-unknown} in

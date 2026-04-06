@@ -125,8 +125,8 @@ global_error_handler() {
     echo -e "  ${RED}${BOLD}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    # Write error to bridge for Cursor
-    if [[ -f "${LIVE_JSON:-/dev/null}" ]]; then
+    # Write error to bridge for Cursor (skip polling if not in Cursor)
+    if [[ "${IS_CURSOR:-false}" == true ]] && [[ -f "${LIVE_JSON:-/dev/null}" ]]; then
         python3 "${SCRIPT_DIR:-$(dirname "$0")}/marlin_bridge.py" write-heal \
             --desc "Script error at line $line_num" \
             --cmd "$failed_cmd" \
@@ -140,7 +140,6 @@ global_error_handler() {
         echo -e "  ${YELLOW}${BOLD}Switch to Cursor and send any message to trigger auto-fix.${NC}"
         echo ""
 
-        # Poll for fix (shorter timeout for global trap)
         local elapsed=0
         local trap_timeout=60
         while [[ $elapsed -lt $trap_timeout ]]; do
@@ -540,6 +539,19 @@ self_heal() {
         echo "$output" | tail -10
         warn "$description — failed (attempt $attempt/$HEAL_MAX_RETRIES)"
 
+        # Non-Cursor mode: skip bridge, just retry or ask for manual fix
+        if [[ "${IS_CURSOR:-false}" != true ]]; then
+            echo ""
+            echo -e "  ${YELLOW}Self-healing requires Cursor IDE. Running without auto-fix.${NC}"
+            echo -e "  ${DIM}Failed command: $cmd${NC}"
+            if [[ $attempt -lt $HEAL_MAX_RETRIES ]]; then
+                echo ""
+                ask "Fix the issue and press Enter to retry, or it will auto-retry."
+                wait_enter
+            fi
+            continue
+        fi
+
         # Write error to file for bridge
         local err_file="$BRIDGE_DIR/last_error.txt"
         echo "$output" > "$err_file"
@@ -567,7 +579,6 @@ self_heal() {
         # Poll for Cursor's response in the live JSON
         local elapsed=0
         while [[ $elapsed -lt $HEAL_TIMEOUT ]]; do
-            # Check if Cursor wrote a response
             local resp
             resp=$(python3 "$SCRIPT_DIR/marlin_bridge.py" read-response 2>/dev/null) && break
             sleep 2
@@ -576,7 +587,6 @@ self_heal() {
         done
         echo ""
 
-        # Check if we got a response
         if [[ -z "$resp" ]]; then
             warn "No response from Cursor within ${HEAL_TIMEOUT}s."
             continue
@@ -614,7 +624,6 @@ self_heal() {
         echo ""
         info "Fix applied. Retrying original command..."
 
-        # Clear heal state for next attempt
         python3 "$SCRIPT_DIR/marlin_bridge.py" clear-heal 2>/dev/null || true
     done
 
@@ -886,15 +895,27 @@ fi
 mkdir -p "$TASK_DIR"
 ok "Task workspace: $TASK_DIR"
 
+# Detect IDE — Cursor has self-healing, others don't
+IS_CURSOR=false
+if [[ -d "$HOME/.cursor" ]] || [[ -n "${CURSOR_TRACE_ID:-}" ]] || pgrep -f "Cursor" &>/dev/null; then
+    IS_CURSOR=true
+fi
+
 # Initialize the live bridge (terminal <-> Cursor communication)
 bridge_init
 LIVE_JSON="$BRIDGE_DIR/live_bridge.json"
 
 python3 "$SCRIPT_DIR/marlin_bridge.py" init-session --task "$TASK_NAME" 2>/dev/null || true
 
-ok "Live bridge: $LIVE_JSON"
-echo -e "  ${DIM}Terminal writes errors here. Cursor reads and fixes automatically.${NC}"
-echo -e "  ${DIM}No API keys needed — uses your Cursor subscription.${NC}"
+if [[ "$IS_CURSOR" == true ]]; then
+    ok "Live bridge: $LIVE_JSON"
+    echo -e "  ${DIM}Terminal writes errors here. Cursor reads and fixes automatically.${NC}"
+    echo -e "  ${DIM}No API keys needed — uses your Cursor subscription.${NC}"
+else
+    ok "IDE: VS Code / other (not Cursor)"
+    echo -e "  ${DIM}Self-healing requires Cursor IDE. Running in standalone mode.${NC}"
+    echo -e "  ${DIM}Errors will show manual fix instructions instead of auto-healing.${NC}"
+fi
 echo ""
 divider
 
@@ -2437,17 +2458,19 @@ elif [[ -f "$CLAUDE_DRAFT_FILE" ]] && [[ $(wc -c < "$CLAUDE_DRAFT_FILE" 2>/dev/n
     fi
 fi
 
-# --- Generate if needed: fully automated via bridge ---
+# --- Generate if needed ---
 if [[ "$CLAUDE_EXISTS" == false ]]; then
-    echo ""
-    info "Generating CLAUDE.md automatically via Cursor bridge..."
-    echo ""
+    CLAUDE_GENERATED=false
 
-    # Gather repo context
-    python3 "$SCRIPT_DIR/marlin_bridge.py" repo-context --path "$(pwd)" > "$TASK_BRIDGE_DIR/repo_context.json" 2>/dev/null || true
+    # Cursor mode: use the bridge for AI-powered CLAUDE.md generation
+    if [[ "${IS_CURSOR:-false}" == true ]]; then
+        echo ""
+        info "Generating CLAUDE.md automatically via Cursor bridge..."
+        echo ""
 
-    # Write action request to live_bridge.json for Cursor
-    python3 -c "
+        python3 "$SCRIPT_DIR/marlin_bridge.py" repo-context --path "$(pwd)" > "$TASK_BRIDGE_DIR/repo_context.json" 2>/dev/null || true
+
+        python3 -c "
 import json
 bridge_path = '$LIVE_JSON'
 try:
@@ -2469,60 +2492,53 @@ with open(bridge_path, 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null || true
 
-    echo -e "  ${BLUE}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${BLUE}║  CLAUDE.md generation request sent to Cursor         ║${NC}"
-    echo -e "  ${BLUE}║  Cursor will read repo context and write CLAUDE.md   ║${NC}"
-    echo -e "  ${BLUE}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "  ${YELLOW}${BOLD}Switch to Cursor and send any message to trigger generation.${NC}"
-    echo -e "  ${DIM}(e.g. type: \"generate CLAUDE.md\" or just press Enter in chat)${NC}"
-    echo ""
+        echo -e "  ${BLUE}╔═══════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${BLUE}║  CLAUDE.md generation request sent to Cursor         ║${NC}"
+        echo -e "  ${BLUE}║  Cursor will read repo context and write CLAUDE.md   ║${NC}"
+        echo -e "  ${BLUE}╚═══════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}Switch to Cursor and send any message to trigger generation.${NC}"
+        echo -e "  ${DIM}(e.g. type: \"generate CLAUDE.md\" or just press Enter in chat)${NC}"
+        echo ""
 
-    # Poll for the result
-    CLAUDE_WAIT=0
-    CLAUDE_MAX_WAIT=180
-    CLAUDE_GENERATED=false
+        CLAUDE_WAIT=0
+        CLAUDE_MAX_WAIT=180
 
-    while [[ $CLAUDE_WAIT -lt $CLAUDE_MAX_WAIT ]]; do
-        # Check if CLAUDE.md appeared (written directly by Cursor)
-        if [[ -f "$CLAUDE_TARGET" ]] && [[ $(wc -c < "$CLAUDE_TARGET" 2>/dev/null || echo 0) -gt 50 ]]; then
-            CLAUDE_GENERATED=true
-            break
-        fi
-        # Check if draft file appeared
-        if [[ -f "$CLAUDE_DRAFT_FILE" ]] && [[ $(wc -c < "$CLAUDE_DRAFT_FILE" 2>/dev/null || echo 0) -gt 50 ]]; then
-            cp "$CLAUDE_DRAFT_FILE" "$CLAUDE_TARGET"
-            CLAUDE_GENERATED=true
-            break
-        fi
-        # Check bridge for action_response
-        action_done=$(python3 -c "
+        while [[ $CLAUDE_WAIT -lt $CLAUDE_MAX_WAIT ]]; do
+            if [[ -f "$CLAUDE_TARGET" ]] && [[ $(wc -c < "$CLAUDE_TARGET" 2>/dev/null || echo 0) -gt 50 ]]; then
+                CLAUDE_GENERATED=true; break
+            fi
+            if [[ -f "$CLAUDE_DRAFT_FILE" ]] && [[ $(wc -c < "$CLAUDE_DRAFT_FILE" 2>/dev/null || echo 0) -gt 50 ]]; then
+                cp "$CLAUDE_DRAFT_FILE" "$CLAUDE_TARGET"
+                CLAUDE_GENERATED=true; break
+            fi
+            action_done=$(python3 -c "
 import json
 with open('$LIVE_JSON') as f:
     d = json.load(f)
 r = d.get('action_response') or {}
 print('yes' if r.get('status') == 'done' else 'no')
 " 2>/dev/null) || action_done="no"
-        if [[ "$action_done" == "yes" ]]; then
-            if [[ -f "$CLAUDE_TARGET" ]]; then
-                CLAUDE_GENERATED=true
-                break
+            if [[ "$action_done" == "yes" ]] && [[ -f "$CLAUDE_TARGET" ]]; then
+                CLAUDE_GENERATED=true; break
             fi
+            sleep 3
+            CLAUDE_WAIT=$((CLAUDE_WAIT + 3))
+            printf "\r  ⟳ Waiting for Cursor to generate CLAUDE.md... (%ds / %ds)  " "$CLAUDE_WAIT" "$CLAUDE_MAX_WAIT"
+        done
+        echo ""
+
+        if [[ "$CLAUDE_GENERATED" == true ]]; then
+            ok "CLAUDE.md generated by Cursor."
         fi
-
-        sleep 3
-        CLAUDE_WAIT=$((CLAUDE_WAIT + 3))
-        printf "\r  ⟳ Waiting for Cursor to generate CLAUDE.md... (%ds / %ds)  " "$CLAUDE_WAIT" "$CLAUDE_MAX_WAIT"
-    done
-    echo ""
-
-    if [[ "$CLAUDE_GENERATED" == true ]]; then
-        ok "CLAUDE.md generated by Cursor."
+    else
+        # Non-Cursor mode: skip bridge, go straight to quick-scan
+        info "Not running in Cursor — using quick-scan to generate CLAUDE.md..."
     fi
 
-    # Fallback to quick-scan if Cursor didn't generate in time
+    # Fallback to quick-scan (always used in non-Cursor mode, used as fallback in Cursor mode)
     if [[ "$CLAUDE_GENERATED" != true ]]; then
-        warn "Cursor did not generate CLAUDE.md within ${CLAUDE_MAX_WAIT}s."
+        [[ "${IS_CURSOR:-false}" == true ]] && warn "Cursor did not generate CLAUDE.md within ${CLAUDE_MAX_WAIT:-180}s."
         echo ""
         info "Falling back to quick-scan generation..."
         echo ""
