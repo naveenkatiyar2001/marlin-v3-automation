@@ -2018,7 +2018,7 @@ fi
 step "3.8 — Download & Install CLI Binary"
 
 MARLIN_TOOLS_DIR="$HOME/marlin-tools"
-HFI_DOWNLOAD_URL="https://console.anthropic.com"
+HFI_DOWNLOAD_URL="https://feedback.anthropic.com/claude_code?email_login=true"
 
 _search_hfi_binary() {
     # Returns the path to the binary if found, empty string otherwise
@@ -2097,10 +2097,10 @@ else
 
     # Open browser automatically
     if [[ "$OS" == "Darwin" ]]; then
-        info "Opening Anthropic console in your browser..."
+        info "Opening Anthropic download page in your browser..."
         open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
     elif command -v xdg-open &>/dev/null; then
-        info "Opening Anthropic console in your browser..."
+        info "Opening Anthropic download page in your browser..."
         xdg-open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
     else
         echo -e "  Open this URL in your browser:"

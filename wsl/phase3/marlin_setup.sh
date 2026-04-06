@@ -1192,7 +1192,7 @@ fi
 step "3.8 — Download & Install CLI Binary"
 
 MARLIN_TOOLS_DIR="$HOME/marlin-tools"
-HFI_DOWNLOAD_URL="https://console.anthropic.com"
+HFI_DOWNLOAD_URL="https://feedback.anthropic.com/claude_code?email_login=true"
 
 # Detect Windows username for path resolution
 WIN_USER=""
@@ -1290,7 +1290,7 @@ else
     echo ""
 
     # Open browser
-    info "Opening Anthropic console in your browser..."
+    info "Opening Anthropic download page in your browser..."
     wsl_open_url "$HFI_DOWNLOAD_URL" 2>/dev/null || {
         echo -e "  Open this URL in your browser:"
         echo -e "    ${CYAN}$HFI_DOWNLOAD_URL${NC}"
