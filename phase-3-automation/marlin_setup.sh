@@ -1986,55 +1986,10 @@ fi
 #   1. Clean main branch  2. Launch HFI  3. THEN create CLAUDE.md
 
 # ==========================================================================
-# STEP 3.7 — Authenticate with Anthropic
+# STEP 3.7 + 3.8 — CLI Binary + Authentication (combined)
 # ==========================================================================
-step "3.7 — Authenticate with Anthropic"
-
-# Detect if already authenticated (HFI session dirs exist or auth token is set)
-AUTH_DETECTED=false
-HFI_TEMP_DIRS=$(find /tmp/claude-hfi 2>/dev/null -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ' || true)
-HFI_TEMP_DIRS="${HFI_TEMP_DIRS:-0}"
-HFI_VAR_DIRS=$(find /var/folders -maxdepth 5 -type d -name "claude-hfi" 2>/dev/null | head -1 || true)
-HFI_VAR_DIRS="${HFI_VAR_DIRS:-}"
-
-if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
-    AUTH_DETECTED=true
-    ok "ANTHROPIC_AUTH_TOKEN is set. Already authenticated."
-elif [[ -n "$HFI_VAR_DIRS" ]] && [[ $(find "$HFI_VAR_DIRS" -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ' || echo "0") -gt 1 ]]; then
-    AUTH_DETECTED=true
-    ok "HFI session history found. Already authenticated."
-elif [[ -d "$HOME/.claude" ]] || [[ -d "$HOME/.config/claude-hfi" ]]; then
-    AUTH_DETECTED=true
-    ok "Auth config directory found. Already authenticated."
-fi
-
-if [[ "$AUTH_DETECTED" == true ]]; then
-    ok "Skipping authentication (already done)."
-else
-    echo "  This step requires a browser. The script cannot do this for you."
-    echo ""
-    echo "  Steps:"
-    echo "    1. Open this URL:"
-    echo -e "       ${CYAN}https://feedback.anthropic.com/claude_code?email_login=true${NC}"
-    echo ""
-    echo "    2. Login with your ${BOLD}Alias email${NC}"
-    echo -e "       ${RED}Do NOT use 'Sign in with Google'${NC}"
-    echo ""
-    echo "    3. Enter the verification code from your Alias inbox"
-    echo ""
-
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        ask "Open the authentication page in your browser?"
-        if wait_confirm "Open browser?"; then
-            open "https://feedback.anthropic.com/claude_code?email_login=true"
-            ok "Opened in browser."
-        fi
-    fi
-
-    echo ""
-    ask "Complete the authentication, then press Enter."
-    wait_enter
-fi
+# Authentication is verified AFTER binary download in Step 3.8 below.
+# This ensures the binary exists before we check/prompt for auth.
 
 # ==========================================================================
 # STEP 3.8 — Download & Install CLI Binary
@@ -2042,90 +1997,204 @@ fi
 step "3.8 — Download & Install CLI Binary"
 
 MARLIN_TOOLS_DIR="$HOME/marlin-tools"
+HFI_DOWNLOAD_URL="https://console.anthropic.com"
 
-if [[ -f "claude-hfi" && -x "claude-hfi" ]]; then
-    ok "CLI binary already exists and is executable: ./claude-hfi"
-elif [[ -f "$MARLIN_TOOLS_DIR/claude-hfi" && -x "$MARLIN_TOOLS_DIR/claude-hfi" ]]; then
-    # Found a cached copy from a previous task
-    ok "Found cached CLI binary at $MARLIN_TOOLS_DIR/claude-hfi"
-    cp "$MARLIN_TOOLS_DIR/claude-hfi" "$(pwd)/claude-hfi"
-    chmod +x claude-hfi
-    xattr -d com.apple.quarantine claude-hfi 2>/dev/null || true
-    ok "Copied to repo root: ./claude-hfi"
-    echo ""
-    echo -e "  ${DIM}(Each repo needs its own copy. The cached version saves you${NC}"
-    echo -e "  ${DIM} from re-downloading every time.)${NC}"
-else
-    echo "  The CLI binary needs to be in every repo root."
-    echo "  You only download it ONCE, then reuse for future tasks."
-    echo ""
-
-    # Detect OS/architecture
-    OS=$(uname -s)
-    ARCH=$(uname -m)
-    RECOMMENDED=""
-    case "$OS-$ARCH" in
-        Darwin-arm64)  RECOMMENDED="macOS (ARM) — darwin-arm64" ;;
-        Darwin-x86_64) RECOMMENDED="macOS (Intel) — darwin-x86_64" ;;
-        Linux-*)       RECOMMENDED="Linux" ;;
-    esac
-
-    echo "  Steps:"
-    echo "    1. On the Anthropic page, download the CLI build"
-    if [[ -n "$RECOMMENDED" ]]; then
-        echo -e "       ${GREEN}Your machine: ${BOLD}$RECOMMENDED${NC}"
-    fi
-    echo "    2. The script will find it and set it up for you"
-    echo ""
-
-    ask "Download the binary from the Anthropic page, then press Enter."
-    wait_enter
-
-    # Search for the binary in common locations
-    FOUND_BINARY=""
-    for f in ~/Downloads/darwin-arm64 ~/Downloads/darwin-x86_64 \
+_search_hfi_binary() {
+    # Returns the path to the binary if found, empty string otherwise
+    for f in "$(pwd)/claude-hfi" \
+             "$MARLIN_TOOLS_DIR/claude-hfi" \
+             ~/Downloads/darwin-arm64 ~/Downloads/darwin-x86_64 \
              ~/Downloads/linux-amd64 ~/Downloads/linux-arm64 \
-             ~/Downloads/claude-hfi ~/Downloads/claude-hfi-*; do
+             ~/Downloads/claude-hfi ~/Downloads/claude-hfi-* \
+             ~/Desktop/darwin-arm64 ~/Desktop/darwin-x86_64 \
+             ~/Desktop/linux-amd64 ~/Desktop/linux-arm64 \
+             ~/Desktop/claude-hfi; do
         if [[ -f "$f" ]]; then
-            FOUND_BINARY="$f"
-            break
+            echo "$f"
+            return 0
         fi
     done
+    return 1
+}
 
-    if [[ -n "$FOUND_BINARY" ]]; then
-        ok "Found: $FOUND_BINARY"
-
-        # Copy to repo root
-        cp "$FOUND_BINARY" "$(pwd)/claude-hfi"
+_install_hfi_binary() {
+    # Arg: path to found binary
+    SRC="$1"
+    if [[ "$SRC" == "$(pwd)/claude-hfi" ]]; then
+        chmod +x claude-hfi 2>/dev/null || true
+        xattr -d com.apple.quarantine claude-hfi 2>/dev/null || true
+        ok "CLI binary already in repo root: ./claude-hfi"
+    else
+        cp "$SRC" "$(pwd)/claude-hfi"
         chmod +x claude-hfi
         xattr -d com.apple.quarantine claude-hfi 2>/dev/null || true
         ok "Installed to repo root: ./claude-hfi"
+    fi
 
-        # Cache it for future tasks
+    # Cache for future tasks
+    if [[ "$SRC" != "$MARLIN_TOOLS_DIR/claude-hfi" ]]; then
         mkdir -p "$MARLIN_TOOLS_DIR"
         cp "$(pwd)/claude-hfi" "$MARLIN_TOOLS_DIR/claude-hfi"
         chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
         xattr -d com.apple.quarantine "$MARLIN_TOOLS_DIR/claude-hfi" 2>/dev/null || true
         ok "Cached at ~/marlin-tools/claude-hfi for future tasks"
-        echo ""
-        echo -e "  ${DIM}Next time you run this script for a new task, it will${NC}"
-        echo -e "  ${DIM}automatically copy the binary from ~/marlin-tools/.${NC}"
-
-    elif [[ -f "claude-hfi" ]]; then
-        chmod +x claude-hfi 2>/dev/null || true
-        xattr -d com.apple.quarantine claude-hfi 2>/dev/null || true
-        ok "CLI binary found in repo: ./claude-hfi"
-    else
-        warn "Could not find the binary automatically."
-        echo ""
-        echo "  Move it manually:"
-        echo -e "    ${CYAN}mv ~/Downloads/darwin-arm64 $(pwd)/claude-hfi${NC}"
-        echo -e "    ${CYAN}chmod +x claude-hfi${NC}"
-        echo ""
-        echo "  To cache for future tasks:"
-        echo -e "    ${CYAN}mkdir -p ~/marlin-tools${NC}"
-        echo -e "    ${CYAN}cp claude-hfi ~/marlin-tools/claude-hfi${NC}"
     fi
+}
+
+# ── First pass: check if binary is already available ──
+FOUND_BINARY=$(_search_hfi_binary || true)
+
+if [[ -n "$FOUND_BINARY" ]]; then
+    _install_hfi_binary "$FOUND_BINARY"
+else
+    # ── Binary NOT found — block until user downloads it ──
+    OS=$(uname -s)
+    ARCH=$(uname -m)
+    RECOMMENDED=""
+    case "$OS-$ARCH" in
+        Darwin-arm64)  RECOMMENDED="darwin-arm64" ;;
+        Darwin-x86_64) RECOMMENDED="darwin-x86_64" ;;
+        Linux-x86_64)  RECOMMENDED="linux-amd64" ;;
+        Linux-aarch64) RECOMMENDED="linux-arm64" ;;
+        Linux-arm64)   RECOMMENDED="linux-arm64" ;;
+    esac
+
+    echo ""
+    echo -e "  ${RED}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${RED}${BOLD}║  CLI binary (claude-hfi) is REQUIRED to continue.         ║${NC}"
+    echo -e "  ${RED}${BOLD}║  The automation CANNOT proceed without it.                 ║${NC}"
+    echo -e "  ${RED}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "  Steps to download:"
+    echo -e "    1. Go to the ${BOLD}Anthropic console / task page${NC}"
+    echo -e "    2. Download the CLI binary for your platform"
+    if [[ -n "$RECOMMENDED" ]]; then
+        echo -e "       ${GREEN}Your machine needs: ${BOLD}$RECOMMENDED${NC}"
+    fi
+    echo -e "    3. Save it to your ${BOLD}Downloads${NC} folder"
+    echo ""
+
+    # Open browser automatically
+    if [[ "$OS" == "Darwin" ]]; then
+        info "Opening Anthropic console in your browser..."
+        open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
+    elif command -v xdg-open &>/dev/null; then
+        info "Opening Anthropic console in your browser..."
+        xdg-open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
+    else
+        echo -e "  Open this URL in your browser:"
+        echo -e "    ${CYAN}$HFI_DOWNLOAD_URL${NC}"
+    fi
+    echo ""
+
+    # ── Retry loop — keep asking until binary is found ──
+    HFI_RETRY=0
+    while true; do
+        ((HFI_RETRY++))
+
+        if [[ $HFI_RETRY -le 1 ]]; then
+            ask "Download the CLI binary, then press Enter to continue."
+        else
+            echo ""
+            echo -e "  ${YELLOW}Attempt $HFI_RETRY: Binary still not found.${NC}"
+            echo ""
+            echo "  Options:"
+            echo -e "    ${CYAN}1${NC}) I've downloaded it — search again"
+            echo -e "    ${CYAN}2${NC}) Open browser to download page"
+            echo -e "    ${CYAN}3${NC}) I'll paste the full path to the binary"
+            echo -e "    ${CYAN}4${NC}) Abort automation"
+            echo ""
+            read -rp "  Choice [1/2/3/4]: " hfi_choice
+
+            case "$hfi_choice" in
+                2)
+                    if [[ "$OS" == "Darwin" ]]; then
+                        open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
+                    elif command -v xdg-open &>/dev/null; then
+                        xdg-open "$HFI_DOWNLOAD_URL" 2>/dev/null || true
+                    fi
+                    info "Browser opened. Download the binary and try again."
+                    continue
+                    ;;
+                3)
+                    read -rp "  Full path to claude-hfi binary: " MANUAL_PATH
+                    if [[ -n "$MANUAL_PATH" && -f "$MANUAL_PATH" ]]; then
+                        _install_hfi_binary "$MANUAL_PATH"
+                        break
+                    else
+                        warn "File not found at: $MANUAL_PATH"
+                        continue
+                    fi
+                    ;;
+                4)
+                    echo ""
+                    echo -e "  ${RED}Aborting. Download claude-hfi and re-run the automation.${NC}"
+                    exit 1
+                    ;;
+            esac
+        fi
+
+        wait_enter
+
+        FOUND_BINARY=$(_search_hfi_binary || true)
+        if [[ -n "$FOUND_BINARY" ]]; then
+            _install_hfi_binary "$FOUND_BINARY"
+            break
+        fi
+    done
+fi
+
+# ── Hard gate: verify binary exists and is executable ──
+if [[ ! -f "$(pwd)/claude-hfi" || ! -x "$(pwd)/claude-hfi" ]]; then
+    echo ""
+    echo -e "  ${RED}${BOLD}FATAL: claude-hfi binary is not in the repo root.${NC}"
+    echo -e "  ${RED}The automation cannot continue without it.${NC}"
+    echo ""
+    echo "  Download it and place it here:"
+    echo -e "    ${CYAN}$(pwd)/claude-hfi${NC}"
+    exit 1
+fi
+
+ok "CLI binary verified: $(pwd)/claude-hfi"
+
+# ── Verify authentication (must be done before launching HFI) ──
+echo ""
+info "Checking authentication status..."
+AUTH_OK=false
+if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+    AUTH_OK=true
+    ok "ANTHROPIC_AUTH_TOKEN is set."
+elif [[ -d "$HOME/.claude" ]] || [[ -d "$HOME/.config/claude-hfi" ]]; then
+    AUTH_OK=true
+    ok "Auth config found."
+elif find /tmp/claude-hfi 2>/dev/null -maxdepth 1 -type d 2>/dev/null | grep -q . 2>/dev/null; then
+    AUTH_OK=true
+    ok "HFI session history found."
+fi
+
+if [[ "$AUTH_OK" != true ]]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}You need to authenticate before launching HFI.${NC}"
+    echo ""
+    echo "  Steps:"
+    echo "    1. Open this URL:"
+    echo -e "       ${CYAN}https://feedback.anthropic.com/claude_code?email_login=true${NC}"
+    echo "    2. Login with your ${BOLD}Alias email${NC}"
+    echo -e "       ${RED}Do NOT use 'Sign in with Google'${NC}"
+    echo "    3. Enter the verification code from your Alias inbox"
+    echo ""
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        info "Opening authentication page..."
+        open "https://feedback.anthropic.com/claude_code?email_login=true" 2>/dev/null || true
+    elif command -v xdg-open &>/dev/null; then
+        info "Opening authentication page..."
+        xdg-open "https://feedback.anthropic.com/claude_code?email_login=true" 2>/dev/null || true
+    fi
+
+    ask "Complete the authentication in your browser, then press Enter."
+    wait_enter
+    ok "Authentication step completed."
 fi
 
 # ==========================================================================

@@ -1162,44 +1162,12 @@ if [[ -n "$TEST_CMD" ]]; then
 fi
 
 # ==========================================================================
-# STEP 3.7 — Authenticate with Anthropic
-# ==========================================================================
-step "3.7 — Authenticate with Anthropic"
-
-AUTH_DETECTED=false
-# Guard find commands with || true to prevent ERR trap
-HFI_TEMP_COUNT=$(find /tmp/claude-hfi 2>/dev/null -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-HFI_HOME_DIR=""
-[[ -d "$HOME/.claude" ]] && HFI_HOME_DIR="$HOME/.claude"
-[[ -d "$HOME/.config/claude-hfi" ]] && HFI_HOME_DIR="$HOME/.config/claude-hfi"
-
-if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
-    AUTH_DETECTED=true; ok "ANTHROPIC_AUTH_TOKEN set."
-elif [[ "${HFI_TEMP_COUNT:-0}" -gt 1 ]]; then
-    AUTH_DETECTED=true; ok "HFI session history found."
-elif [[ -n "$HFI_HOME_DIR" ]]; then
-    AUTH_DETECTED=true; ok "Auth config directory found."
-fi
-
-if [[ "$AUTH_DETECTED" == true ]]; then
-    ok "Skipping authentication."
-else
-    echo "  Open this URL in your browser:"
-    echo -e "    ${CYAN}https://feedback.anthropic.com/claude_code?email_login=true${NC}"
-    echo ""
-    echo "  Login with your ${BOLD}Alias email${NC} (NOT Google sign-in)."
-    echo ""
-    wsl_open_url "https://feedback.anthropic.com/claude_code?email_login=true" 2>/dev/null || true
-    ask "Complete authentication, then press Enter."
-    wait_enter
-fi
-
-# ==========================================================================
-# STEP 3.8 — CLI Binary
+# STEP 3.7 + 3.8 — CLI Binary + Authentication (combined)
 # ==========================================================================
 step "3.8 — Download & Install CLI Binary"
 
 MARLIN_TOOLS_DIR="$HOME/marlin-tools"
+HFI_DOWNLOAD_URL="https://console.anthropic.com"
 
 # Detect Windows username for path resolution
 WIN_USER=""
@@ -1207,75 +1175,33 @@ if command -v cmd.exe &>/dev/null; then
     WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n' || true)
 fi
 if [[ -z "$WIN_USER" ]]; then
-    # Fallback: scan /mnt/c/Users for directories
     for d in /mnt/c/Users/*/; do
-        local uname=$(basename "$d")
-        [[ "$uname" != "Public" && "$uname" != "Default" && "$uname" != "Default User" && "$uname" != "All Users" ]] && {
-            WIN_USER="$uname"; break; }
+        uname_dir=$(basename "$d")
+        [[ "$uname_dir" != "Public" && "$uname_dir" != "Default" && "$uname_dir" != "Default User" && "$uname_dir" != "All Users" ]] && {
+            WIN_USER="$uname_dir"; break; }
     done
 fi
-
 WIN_DOWNLOADS=""
 [[ -n "$WIN_USER" ]] && WIN_DOWNLOADS="/mnt/c/Users/$WIN_USER/Downloads"
 
-if [[ -f "claude-hfi" && -x "claude-hfi" ]]; then
-    ok "CLI binary exists: ./claude-hfi"
-elif [[ -f "$MARLIN_TOOLS_DIR/claude-hfi" && -x "$MARLIN_TOOLS_DIR/claude-hfi" ]]; then
-    cp "$MARLIN_TOOLS_DIR/claude-hfi" "$(pwd)/claude-hfi"
-    chmod +x claude-hfi
-    ok "Copied from cache: ~/marlin-tools/claude-hfi"
-else
-    ARCH=$(uname -m)
-    RECOMMENDED="linux-amd64"
-    [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && RECOMMENDED="linux-arm64"
-
-    echo ""
-    echo "  Download the CLI binary for: ${BOLD}$RECOMMENDED${NC}"
-    echo ""
-    echo -e "  ${BOLD}WSL path note:${NC}"
-    echo "  Your Windows Downloads folder is accessible at:"
-    if [[ -n "$WIN_DOWNLOADS" ]]; then
-        echo -e "    ${CYAN}$WIN_DOWNLOADS${NC}"
-    else
-        echo -e "    ${CYAN}/mnt/c/Users/<YourWindowsUsername>/Downloads${NC}"
-    fi
-    echo ""
-    echo "  After downloading in your browser, press Enter."
-    wait_enter
-
-    # Search for binary in all possible locations
-    FOUND=""
+_search_hfi_binary_wsl() {
     SEARCH_PATHS=(
-        # WSL home Downloads
-        "$HOME/Downloads/linux-amd64"
-        "$HOME/Downloads/linux-arm64"
-        "$HOME/Downloads/claude-hfi"
-        # Current directory
-        "./linux-amd64"
-        "./linux-arm64"
+        "$(pwd)/claude-hfi"
+        "$MARLIN_TOOLS_DIR/claude-hfi"
+        "$HOME/Downloads/linux-amd64" "$HOME/Downloads/linux-arm64" "$HOME/Downloads/claude-hfi"
+        "./linux-amd64" "./linux-arm64"
     )
-
-    # Add Windows Downloads paths
     if [[ -n "$WIN_DOWNLOADS" && -d "$WIN_DOWNLOADS" ]]; then
         SEARCH_PATHS+=(
-            "$WIN_DOWNLOADS/linux-amd64"
-            "$WIN_DOWNLOADS/linux-arm64"
-            "$WIN_DOWNLOADS/claude-hfi"
-            "$WIN_DOWNLOADS/linux-amd64.exe"
-            "$WIN_DOWNLOADS/linux-arm64.exe"
+            "$WIN_DOWNLOADS/linux-amd64" "$WIN_DOWNLOADS/linux-arm64"
+            "$WIN_DOWNLOADS/claude-hfi" "$WIN_DOWNLOADS/linux-amd64.exe" "$WIN_DOWNLOADS/linux-arm64.exe"
         )
     fi
-
-    # Also scan all Windows user Downloads as fallback
     for win_dl in /mnt/c/Users/*/Downloads; do
         [[ -d "$win_dl" ]] && SEARCH_PATHS+=(
-            "$win_dl/linux-amd64"
-            "$win_dl/linux-arm64"
-            "$win_dl/claude-hfi"
+            "$win_dl/linux-amd64" "$win_dl/linux-arm64" "$win_dl/claude-hfi"
         )
     done
-
-    # Also check Desktop (some people save there)
     if [[ -n "$WIN_USER" ]]; then
         SEARCH_PATHS+=(
             "/mnt/c/Users/$WIN_USER/Desktop/linux-amd64"
@@ -1283,47 +1209,161 @@ else
             "/mnt/c/Users/$WIN_USER/Desktop/claude-hfi"
         )
     fi
-
     for f in "${SEARCH_PATHS[@]}"; do
         if [[ -f "$f" ]]; then
-            FOUND="$f"
-            ok "Found binary at: $f"
+            echo "$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_install_hfi_binary_wsl() {
+    SRC="$1"
+    if [[ "$SRC" == "$(pwd)/claude-hfi" ]]; then
+        chmod +x claude-hfi 2>/dev/null || true
+        ok "CLI binary already in repo root: ./claude-hfi"
+    else
+        cp "$SRC" "$(pwd)/claude-hfi"
+        chmod +x claude-hfi
+        ok "Installed to repo root: ./claude-hfi"
+    fi
+    if [[ "$SRC" != "$MARLIN_TOOLS_DIR/claude-hfi" ]]; then
+        mkdir -p "$MARLIN_TOOLS_DIR"
+        cp "$(pwd)/claude-hfi" "$MARLIN_TOOLS_DIR/claude-hfi"
+        chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
+        ok "Cached at ~/marlin-tools/claude-hfi"
+    fi
+}
+
+# ── First pass: check if binary is already available ──
+FOUND_BINARY=$(_search_hfi_binary_wsl || true)
+
+if [[ -n "$FOUND_BINARY" ]]; then
+    _install_hfi_binary_wsl "$FOUND_BINARY"
+else
+    # ── Binary NOT found — block until user downloads it ──
+    ARCH=$(uname -m)
+    RECOMMENDED="linux-amd64"
+    [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && RECOMMENDED="linux-arm64"
+
+    echo ""
+    echo -e "  ${RED}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${RED}${BOLD}║  CLI binary (claude-hfi) is REQUIRED to continue.         ║${NC}"
+    echo -e "  ${RED}${BOLD}║  The automation CANNOT proceed without it.                 ║${NC}"
+    echo -e "  ${RED}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "  Steps to download:"
+    echo -e "    1. Go to the ${BOLD}Anthropic console / task page${NC}"
+    echo -e "    2. Download the CLI binary: ${BOLD}$RECOMMENDED${NC}"
+    echo -e "    3. Save it to your Downloads folder"
+    echo ""
+    if [[ -n "$WIN_DOWNLOADS" ]]; then
+        echo -e "  ${BOLD}WSL path note:${NC} Windows Downloads is accessible at:"
+        echo -e "    ${CYAN}$WIN_DOWNLOADS${NC}"
+    fi
+    echo ""
+
+    # Open browser
+    info "Opening Anthropic console in your browser..."
+    wsl_open_url "$HFI_DOWNLOAD_URL" 2>/dev/null || {
+        echo -e "  Open this URL in your browser:"
+        echo -e "    ${CYAN}$HFI_DOWNLOAD_URL${NC}"
+    }
+    echo ""
+
+    # ── Retry loop ──
+    HFI_RETRY=0
+    while true; do
+        ((HFI_RETRY++))
+
+        if [[ $HFI_RETRY -le 1 ]]; then
+            ask "Download the CLI binary, then press Enter to continue."
+        else
+            echo ""
+            echo -e "  ${YELLOW}Attempt $HFI_RETRY: Binary still not found.${NC}"
+            echo ""
+            echo "  Options:"
+            echo -e "    ${CYAN}1${NC}) I've downloaded it — search again"
+            echo -e "    ${CYAN}2${NC}) Open browser to download page"
+            echo -e "    ${CYAN}3${NC}) I'll paste the full path to the binary"
+            echo -e "    ${CYAN}4${NC}) Abort automation"
+            echo ""
+            read -rp "  Choice [1/2/3/4]: " hfi_choice
+
+            case "$hfi_choice" in
+                2)
+                    wsl_open_url "$HFI_DOWNLOAD_URL" 2>/dev/null || true
+                    info "Browser opened. Download the binary and try again."
+                    continue
+                    ;;
+                3)
+                    read -rp "  Full path to claude-hfi binary: " MANUAL_PATH
+                    if [[ -n "$MANUAL_PATH" && -f "$MANUAL_PATH" ]]; then
+                        _install_hfi_binary_wsl "$MANUAL_PATH"
+                        break
+                    else
+                        warn "File not found at: $MANUAL_PATH"
+                        continue
+                    fi
+                    ;;
+                4)
+                    echo ""
+                    echo -e "  ${RED}Aborting. Download claude-hfi and re-run the automation.${NC}"
+                    exit 1
+                    ;;
+            esac
+        fi
+
+        wait_enter
+
+        FOUND_BINARY=$(_search_hfi_binary_wsl || true)
+        if [[ -n "$FOUND_BINARY" ]]; then
+            _install_hfi_binary_wsl "$FOUND_BINARY"
             break
         fi
     done
+fi
 
-    if [[ -n "$FOUND" ]]; then
-        cp "$FOUND" "$(pwd)/claude-hfi"
-        chmod +x claude-hfi
-        ok "Installed: ./claude-hfi"
-        mkdir -p "$MARLIN_TOOLS_DIR"
-        cp claude-hfi "$MARLIN_TOOLS_DIR/claude-hfi"
-        chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
-        ok "Cached at ~/marlin-tools/"
-    else
-        warn "Binary not found automatically."
-        echo ""
-        echo "  Searched in:"
-        [[ -n "$WIN_DOWNLOADS" ]] && echo -e "    ${DIM}$WIN_DOWNLOADS${NC}"
-        echo -e "    ${DIM}$HOME/Downloads${NC}"
-        echo -e "    ${DIM}/mnt/c/Users/*/Downloads${NC}"
-        echo ""
-        echo "  Option 1 — paste the full path to the binary:"
-        read -rp "    Path (or press Enter to skip): " MANUAL_PATH
-        if [[ -n "$MANUAL_PATH" && -f "$MANUAL_PATH" ]]; then
-            cp "$MANUAL_PATH" "$(pwd)/claude-hfi"
-            chmod +x claude-hfi
-            ok "Installed from: $MANUAL_PATH"
-            mkdir -p "$MARLIN_TOOLS_DIR"
-            cp claude-hfi "$MARLIN_TOOLS_DIR/claude-hfi"
-            chmod +x "$MARLIN_TOOLS_DIR/claude-hfi"
-        else
-            echo ""
-            echo "  Option 2 — copy it manually:"
-            echo -e "    ${CYAN}cp /mnt/c/Users/$WIN_USER/Downloads/$RECOMMENDED ./claude-hfi${NC}"
-            echo -e "    ${CYAN}chmod +x claude-hfi${NC}"
-        fi
-    fi
+# ── Hard gate: verify binary exists and is executable ──
+if [[ ! -f "$(pwd)/claude-hfi" || ! -x "$(pwd)/claude-hfi" ]]; then
+    echo ""
+    echo -e "  ${RED}${BOLD}FATAL: claude-hfi binary is not in the repo root.${NC}"
+    echo -e "  ${RED}The automation cannot continue without it.${NC}"
+    echo ""
+    echo "  Download it and place it here:"
+    echo -e "    ${CYAN}$(pwd)/claude-hfi${NC}"
+    exit 1
+fi
+
+ok "CLI binary verified: $(pwd)/claude-hfi"
+
+# ── Verify authentication ──
+echo ""
+info "Checking authentication status..."
+AUTH_OK=false
+if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+    AUTH_OK=true; ok "ANTHROPIC_AUTH_TOKEN set."
+elif [[ -d "$HOME/.claude" ]] || [[ -d "$HOME/.config/claude-hfi" ]]; then
+    AUTH_OK=true; ok "Auth config found."
+elif find /tmp/claude-hfi 2>/dev/null -maxdepth 1 -type d 2>/dev/null | grep -q . 2>/dev/null; then
+    AUTH_OK=true; ok "HFI session history found."
+fi
+
+if [[ "$AUTH_OK" != true ]]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}You need to authenticate before launching HFI.${NC}"
+    echo ""
+    echo "  Steps:"
+    echo "    1. Open this URL:"
+    echo -e "       ${CYAN}https://feedback.anthropic.com/claude_code?email_login=true${NC}"
+    echo "    2. Login with your ${BOLD}Alias email${NC} (NOT Google sign-in)"
+    echo "    3. Enter the verification code from your Alias inbox"
+    echo ""
+    wsl_open_url "https://feedback.anthropic.com/claude_code?email_login=true" 2>/dev/null || true
+    ask "Complete the authentication in your browser, then press Enter."
+    wait_enter
+    ok "Authentication step completed."
 fi
 
 # ==========================================================================
