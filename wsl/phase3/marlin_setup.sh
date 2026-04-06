@@ -954,26 +954,54 @@ case "$KNOWN_REPO" in
             sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev libsecret-1-dev 2>&1 | tail -5
         }
 
+        # Python 3.12+ removed distutils — setuptools provides it for node-gyp
+        if command -v python3 &>/dev/null; then
+            python3 -c "import distutils" 2>/dev/null || {
+                info "Installing setuptools (provides distutils for node-gyp)..."
+                pip3 install setuptools 2>&1 | tail -3 \
+                    || pip3 install --break-system-packages setuptools 2>&1 | tail -3 \
+                    || sudo apt-get install -y python3-setuptools 2>&1 | tail -3 \
+                    || true
+            }
+        fi
+
         command -v yarn &>/dev/null || ensure_pkg_manager "yarn"
 
         info "Installing VS Code dependencies (5-10 minutes)..."
         info "Node: $(node --version 2>/dev/null) | Yarn: $(yarn --version 2>/dev/null)"
+
+        # Attempt 1: standard install
         if yarn install --network-timeout 600000 2>&1 | tail -20; then
             INSTALL_OK=true
             ok "VS Code dependencies installed."
-        else
+        fi
+
+        # Attempt 2: skip engine checks
+        if [[ "$INSTALL_OK" != true ]]; then
             warn "yarn install failed. Retrying with --ignore-engines..."
             rm -rf node_modules 2>/dev/null
             if yarn install --network-timeout 600000 --ignore-engines 2>&1 | tail -20; then
                 INSTALL_OK=true
                 ok "VS Code dependencies installed (engine checks bypassed)."
-            else
-                warn "yarn install --ignore-engines also failed."
-                echo "  Manual fixes:"
-                echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
-                echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
-                echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
             fi
+        fi
+
+        # Attempt 3: skip all postinstall scripts (bypasses node-gyp/distutils failures)
+        if [[ "$INSTALL_OK" != true ]]; then
+            warn "Still failing (likely node-gyp). Retrying with --ignore-scripts..."
+            rm -rf node_modules 2>/dev/null
+            if yarn install --network-timeout 600000 --ignore-engines --ignore-scripts 2>&1 | tail -20; then
+                INSTALL_OK=true
+                ok "VS Code dependencies installed (native module builds skipped)."
+                warn "Some native modules were not built. Tests that need them may fail."
+            fi
+        fi
+
+        if [[ "$INSTALL_OK" != true ]]; then
+            echo "  Manual fixes:"
+            echo -e "    ${CYAN}pip3 install setuptools${NC}  (provides distutils for node-gyp)"
+            echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
+            echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
         fi
         TEST_CMD="yarn test"
         ;;

@@ -1524,7 +1524,19 @@ case "$KNOWN_REPO" in
         info "VS Code repo (TypeScript, native modules)."
         ensure_node_version || true
 
-        # VS Code needs specific build tools for native modules
+        # VS Code needs build tools + distutils for node-gyp native modules
+        # Python 3.12+ removed distutils — setuptools provides it
+        if command -v python3 &>/dev/null; then
+            python3 -c "import distutils" 2>/dev/null || {
+                info "Installing setuptools (provides distutils for node-gyp)..."
+                pip3 install setuptools 2>&1 | tail -3 \
+                    || pip3 install --break-system-packages setuptools 2>&1 | tail -3 \
+                    || python3 -m pip install setuptools 2>&1 | tail -3 \
+                    || python3 -m pip install --break-system-packages setuptools 2>&1 | tail -3 \
+                    || true
+            }
+        fi
+
         if [[ "$(uname -s)" == "Darwin" ]]; then
             command -v python3 &>/dev/null || { warn "python3 needed for node-gyp"; }
             if ! xcode-select -p &>/dev/null 2>&1; then
@@ -1532,7 +1544,6 @@ case "$KNOWN_REPO" in
                 echo -e "    ${CYAN}xcode-select --install${NC}"
             fi
         elif command -v apt-get &>/dev/null; then
-            # Linux/WSL: ensure build-essential for node-gyp
             dpkg -l build-essential &>/dev/null 2>&1 || {
                 info "Installing build-essential for native modules..."
                 sudo apt-get install -y build-essential python3 2>&1 | tail -3
@@ -1546,40 +1557,55 @@ case "$KNOWN_REPO" in
         # VS Code install with network timeout (large repo, many deps)
         info "Installing VS Code dependencies (this may take 5-10 minutes)..."
         info "Node: $(node --version 2>/dev/null) | Yarn: $(yarn --version 2>/dev/null)"
+
+        # Attempt 1: standard install
         if yarn install --network-timeout 600000 2>&1 | tail -20; then
             INSTALL_OK=true
             ok "VS Code dependencies installed."
-        else
+        fi
+
+        # Attempt 2: skip engine checks (transitive deps may reject newer Node)
+        if [[ "$INSTALL_OK" != true ]]; then
             warn "yarn install failed. Retrying with --ignore-engines..."
             rm -rf node_modules 2>/dev/null
             if yarn install --network-timeout 600000 --ignore-engines 2>&1 | tail -20; then
                 INSTALL_OK=true
                 ok "VS Code dependencies installed (engine checks bypassed)."
-            else
-                warn "yarn install --ignore-engines also failed."
-
-                # macOS EPERM fallback — source nvm in the new terminal
-                if [[ "$(uname -s)" == "Darwin" ]] && command -v osascript &>/dev/null; then
-                    info "Retrying via Terminal.app (bypasses macOS TCC)..."
-                    local nvm_setup=""
-                    if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
-                        nvm_setup="export NVM_DIR='${NVM_DIR:-$HOME/.nvm}' && source \"\$NVM_DIR/nvm.sh\" && nvm use 2>/dev/null; "
-                    fi
-                    osascript -e "tell application \"Terminal\" to do script \"${nvm_setup}cd '$(pwd)' && yarn install --network-timeout 600000 --ignore-engines\"" 2>/dev/null || true
-                    echo ""
-                    echo -e "  ${YELLOW}Watch the Terminal.app window for progress.${NC}"
-                    ask "Press Enter once install finishes in Terminal.app."
-                    wait_enter
-                    [[ -d "node_modules" ]] && INSTALL_OK=true
-                fi
-
-                if [[ "$INSTALL_OK" != true ]]; then
-                    echo "  Manual fixes:"
-                    echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
-                    echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
-                    echo -e "    ${CYAN}rm -rf node_modules && yarn cache clean && yarn install${NC}"
-                fi
             fi
+        fi
+
+        # Attempt 3: skip all postinstall scripts (bypasses node-gyp/distutils failures)
+        if [[ "$INSTALL_OK" != true ]]; then
+            warn "Still failing (likely node-gyp native modules). Retrying with --ignore-scripts..."
+            rm -rf node_modules 2>/dev/null
+            if yarn install --network-timeout 600000 --ignore-engines --ignore-scripts 2>&1 | tail -20; then
+                INSTALL_OK=true
+                ok "VS Code dependencies installed (native module builds skipped)."
+                warn "Some native modules were not built. Tests that need them may fail."
+            fi
+        fi
+
+        # Attempt 4: macOS Terminal.app fallback (different TCC/permission context)
+        if [[ "$INSTALL_OK" != true ]] && [[ "$(uname -s)" == "Darwin" ]] && command -v osascript &>/dev/null; then
+            info "Retrying via Terminal.app (bypasses macOS TCC)..."
+            nvm_setup=""
+            if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+                nvm_setup="export NVM_DIR='${NVM_DIR:-$HOME/.nvm}' && source \"\$NVM_DIR/nvm.sh\" && nvm use 2>/dev/null; "
+            fi
+            distutils_fix="python3 -c 'import distutils' 2>/dev/null || pip3 install setuptools 2>/dev/null; "
+            osascript -e "tell application \"Terminal\" to do script \"${nvm_setup}${distutils_fix}cd '$(pwd)' && yarn install --network-timeout 600000 --ignore-engines\"" 2>/dev/null || true
+            echo ""
+            echo -e "  ${YELLOW}Watch the Terminal.app window for progress.${NC}"
+            ask "Press Enter once install finishes in Terminal.app."
+            wait_enter
+            [[ -d "node_modules" ]] && INSTALL_OK=true
+        fi
+
+        if [[ "$INSTALL_OK" != true ]]; then
+            echo "  Manual fixes:"
+            echo -e "    ${CYAN}pip3 install setuptools${NC}  (provides distutils for node-gyp)"
+            echo -e "    ${CYAN}nvm use${NC}  (match .nvmrc)"
+            echo -e "    ${CYAN}yarn install --network-timeout 600000 --ignore-engines${NC}"
         fi
         TEST_CMD="yarn test"
         ;;
