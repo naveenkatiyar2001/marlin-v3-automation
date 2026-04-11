@@ -124,7 +124,7 @@ while true; do
     [[ "$RESULT_B_EXISTS" == true ]] && STATUS_MSG="$STATUS_MSG, B done" || STATUS_MSG="$STATUS_MSG, B running"
     [[ $TMUX_ACTIVE -gt 0 ]] && STATUS_MSG="$STATUS_MSG | tmux sessions: $TMUX_ACTIVE"
 
-    printf "\r  ${DIM}[%03d] Waiting for model completion... (%s)${NC}  " "$POLL_COUNT" "$STATUS_MSG"
+    printf "\r  %s[%03d] Waiting for model completion... (%s)%s  " "$DIM" "$POLL_COUNT" "$STATUS_MSG" "$NC"
     POLL_COUNT=$((POLL_COUNT + 1))
     sleep 5
 done
@@ -342,7 +342,7 @@ echo ""
 
 if [[ -n "$SESSION_FILE_B" && -f "$SESSION_FILE_B" ]]; then
     ok "Trace B found: $(basename "$SESSION_FILE_B")"
-    TRACE_B=$(extract_trace "$SESSION_FILE_B" "B" "$SESSION_FILE_B" 2>/dev/null || echo '{"error": "parse failed"}')
+    TRACE_B=$(extract_trace "$SESSION_FILE_B" "B" 2>/dev/null || echo '{"error": "parse failed"}')
     TRACE_B_TOOL_COUNT=$(echo "$TRACE_B" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tool_call_count',0))" 2>/dev/null || echo "?")
     TRACE_B_FILES=$(echo "$TRACE_B" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('files_modified',[])))" 2>/dev/null || echo "?")
     echo -e "    ${DIM}Tool calls: $TRACE_B_TOOL_COUNT | Files modified: $TRACE_B_FILES${NC}"
@@ -586,7 +586,7 @@ else:
         break
     fi
 
-    printf "\r  ${DIM}[%03d] Waiting for Cursor to generate evaluation...${NC}  " "$EVAL_POLL"
+    printf "\r  %s[%03d] Waiting for Cursor to generate evaluation...%s  " "$DIM" "$EVAL_POLL" "$NC"
     EVAL_POLL=$((EVAL_POLL + 1))
     sleep 5
 done

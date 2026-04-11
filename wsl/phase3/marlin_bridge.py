@@ -40,7 +40,16 @@ def read_bridge() -> dict:
 
 
 def write_bridge(data: dict):
-    LIVE_JSON.write_text(json.dumps(data, indent=2))
+    import tempfile, os
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(LIVE_JSON.parent), suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.rename(tmp_path, str(LIVE_JSON))
+    except Exception:
+        try: os.unlink(tmp_path)
+        except OSError: pass
+        LIVE_JSON.write_text(json.dumps(data, indent=2))
 
 
 def add_log(bridge: dict, msg: str):
@@ -112,7 +121,7 @@ def write_heal_request(description: str, command: str, error_output: str,
     return req_id
 
 
-def read_heal_response() -> dict | None:
+def read_heal_response():
     bridge = read_bridge()
     resp = bridge.get("heal_response")
     if resp and isinstance(resp, dict) and resp.get("status") == "fixed":

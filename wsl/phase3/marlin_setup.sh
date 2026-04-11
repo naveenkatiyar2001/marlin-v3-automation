@@ -209,9 +209,9 @@ self_heal() {
         attempt=$((attempt + 1))
         [[ $attempt -gt 1 ]] && info "Retry $attempt/$HEAL_MAX_RETRIES: $description"
 
-        local output
-        output=$(eval "$cmd" 2>&1) || true
-        local exit_code=${PIPESTATUS[0]:-$?}
+        local output=""
+        local exit_code=0
+        output=$(eval "$cmd" 2>&1) && exit_code=0 || exit_code=$?
 
         if [[ $exit_code -eq 0 ]]; then
             ok "$description"
@@ -1391,6 +1391,10 @@ if [[ "$AUTH_OK" != true ]]; then
     ok "Authentication step completed."
 fi
 
+# CLAUDE.md created AFTER HFI launch per Critical Workflow.
+# "Recommended Setup Strategy" (before launch) was removed April 5, 2026.
+CLAUDE_BEFORE_LAUNCH=false
+
 # ==========================================================================
 # STEP 3.9 — Launch CLI
 # ==========================================================================
@@ -1443,12 +1447,14 @@ done
 echo ""
 
 # ==========================================================================
-# STEP 3.6 — CLAUDE.md (after HFI launch, per-task scoped)
+# STEP 3.6 — CLAUDE.md — AFTER-LAUNCH PATH
 # ==========================================================================
-step "3.6 — CLAUDE.md (V3 Requirement)"
+step "3.6 — CLAUDE.md (V3 Requirement — created AFTER HFI launch)"
+echo "  Per Critical Workflow: CLAUDE.md created after HFI launches."
+echo ""
 
 CLAUDE_TARGET="CLAUDE.md"
-CLAUDE_DRAFT_FILE="$TASK_BRIDGE_DIR/CLAUDE_md_content.txt"  # Per-task, not shared!
+CLAUDE_DRAFT_FILE="$TASK_BRIDGE_DIR/CLAUDE_md_content.txt"
 CLAUDE_EXISTS=false
 
 if [[ -f "CLAUDE.md" ]]; then
@@ -1558,14 +1564,148 @@ fi
     divider
 }
 
-# Copy CLAUDE.md to worktrees
-if [[ -f "CLAUDE.md" ]]; then
+# (CLAUDE.md generation complete — proceed to bulletproof delivery)
+
+# ──────────────────────────────────────────────────────────────────────
+# BULLETPROOF CLAUDE.md DELIVERY (WSL) — runs for BOTH approaches
+# CLAUDE.md MUST exist in BOTH worktrees A and B before any turn.
+# ──────────────────────────────────────────────────────────────────────
+
+_discover_hfi_paths() {
+    local repo_base
+    repo_base="$(basename "$(pwd)")"
+
     while IFS= read -r wt_line; do
         wt_path=$(echo "$wt_line" | awk '{print $1}')
-        [[ -n "$wt_path" && "$wt_path" != "$(pwd)" && -d "$wt_path" ]] && \
-            cp CLAUDE.md "$wt_path/CLAUDE.md" 2>/dev/null && ok "Copied CLAUDE.md to worktree: $(basename "$wt_path")"
+        [[ -n "$wt_path" && "$wt_path" != "$(pwd)" && -d "$wt_path" ]] && echo "$wt_path"
     done < <(git worktree list 2>/dev/null)
+
+    for d in "$HOME/.cache/claude-hfi/"*/A "$HOME/.cache/claude-hfi/"*/B; do
+        [[ -d "$d" ]] && echo "$d"
+    done 2>/dev/null
+
+    for d in "$HOME/.cache/claude-hfi/"*/worktrees/A "$HOME/.cache/claude-hfi/"*/worktrees/B; do
+        [[ -d "$d" ]] && echo "$d"
+    done 2>/dev/null
+
+    for d in "$HOME/.cache/claude-hfi/$repo_base/A" "$HOME/.cache/claude-hfi/$repo_base/B" \
+             "$HOME/.cache/claude-hfi/"*"$repo_base"*/A "$HOME/.cache/claude-hfi/"*"$repo_base"*/B; do
+        [[ -d "$d" ]] && echo "$d"
+    done 2>/dev/null
+}
+
+_copy_claude_to_all() {
+    local src="$1"
+    local copied_a=false
+    local copied_b=false
+
+    while IFS= read -r target_path; do
+        [[ -z "$target_path" ]] && continue
+        local bdir
+        bdir=$(basename "$target_path")
+        if cp "$src" "$target_path/CLAUDE.md" 2>&1; then
+            if [[ "$bdir" == "A" || "$target_path" =~ /A$ || "$target_path" =~ -A$ ]]; then
+                ok "Copied CLAUDE.md → $target_path/"
+                copied_a=true
+            elif [[ "$bdir" == "B" || "$target_path" =~ /B$ || "$target_path" =~ -B$ ]]; then
+                ok "Copied CLAUDE.md → $target_path/"
+                copied_b=true
+            else
+                ok "Copied CLAUDE.md → $target_path/"
+            fi
+        else
+            warn "FAILED to copy CLAUDE.md to $target_path/"
+        fi
+    done < <(_discover_hfi_paths | sort -u)
+
+    [[ "$copied_a" == true && "$copied_b" == true ]] && return 0
+    [[ "$copied_a" == true || "$copied_b" == true ]] && return 1
+    return 2
+}
+
+_verify_claude_in_worktrees() {
+    VERIFIED_A=""
+    VERIFIED_B=""
+
+    while IFS= read -r target_path; do
+        [[ -z "$target_path" ]] && continue
+        local bdir
+        bdir=$(basename "$target_path")
+        if [[ -s "$target_path/CLAUDE.md" ]]; then
+            if [[ "$bdir" == "A" || "$target_path" =~ /A$ || "$target_path" =~ -A$ ]]; then
+                VERIFIED_A="$target_path"
+            elif [[ "$bdir" == "B" || "$target_path" =~ /B$ || "$target_path" =~ -B$ ]]; then
+                VERIFIED_B="$target_path"
+            fi
+        fi
+    done < <(_discover_hfi_paths | sort -u)
+
+    [[ -n "$VERIFIED_A" && -n "$VERIFIED_B" ]] && return 0
+    return 1
+}
+
+if [[ -f "CLAUDE.md" ]]; then
+    info "Waiting for HFI to create worktrees (A/B)..."
+    echo -e "  ${DIM}(Usually takes 10-30 seconds after HFI starts)${NC}"
+    WT_POLL=0
+    WT_MAX=120
+
+    while [[ $WT_POLL -lt $WT_MAX ]]; do
+        DISCOVERED=$(_discover_hfi_paths | sort -u | wc -l | tr -d ' ')
+        [[ "$DISCOVERED" -ge 2 ]] && break
+        sleep 5
+        WT_POLL=$((WT_POLL + 5))
+        printf "\r  ${DIM}⟳ Scanning for worktrees... (%ds / %ds, found %s paths)${NC}  " "$WT_POLL" "$WT_MAX" "$DISCOVERED"
+    done
+    echo ""
+
+    [[ "$DISCOVERED" -ge 2 ]] && { info "Worktrees found. Copying CLAUDE.md..."; _copy_claude_to_all "$(pwd)/CLAUDE.md"; }
+
+    # HARD GATE: script cannot proceed without CLAUDE.md in both worktrees
+    while true; do
+        if _verify_claude_in_worktrees; then
+            echo ""
+            echo -e "  ${GREEN}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "  ${GREEN}${BOLD}║  CLAUDE.md VERIFIED in both worktrees                     ║${NC}"
+            echo -e "  ${GREEN}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}"
+            echo -e "  ${GREEN}  Worktree A:${NC} $VERIFIED_A/CLAUDE.md"
+            echo -e "  ${GREEN}  Worktree B:${NC} $VERIFIED_B/CLAUDE.md"
+            break
+        fi
+
+        echo ""
+        echo -e "  ${RED}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${RED}${BOLD}║  CLAUDE.md MISSING from one or both worktrees!            ║${NC}"
+        echo -e "  ${RED}${BOLD}║  The model CANNOT work without it. Do NOT paste prompts.  ║${NC}"
+        echo -e "  ${RED}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        [[ -n "$VERIFIED_A" ]] && echo -e "  ${GREEN}✓ Worktree A:${NC} $VERIFIED_A/CLAUDE.md" || echo -e "  ${RED}✗ Worktree A:${NC} NOT FOUND"
+        [[ -n "$VERIFIED_B" ]] && echo -e "  ${GREEN}✓ Worktree B:${NC} $VERIFIED_B/CLAUDE.md" || echo -e "  ${RED}✗ Worktree B:${NC} NOT FOUND"
+        echo ""
+        echo -e "  ${BOLD}Manual copy commands:${NC}"
+        echo -e "    ${CYAN}cp $(pwd)/CLAUDE.md ~/.cache/claude-hfi/*/A/CLAUDE.md${NC}"
+        echo -e "    ${CYAN}cp $(pwd)/CLAUDE.md ~/.cache/claude-hfi/*/B/CLAUDE.md${NC}"
+        echo ""
+        echo "  Options:"
+        echo -e "    ${CYAN}1${NC}) Re-scan and retry"
+        echo -e "    ${CYAN}2${NC}) I copied manually — verify again"
+        echo -e "    ${CYAN}3${NC}) Abort"
+        read -rp "  Choice [1/2/3]: " cg_choice
+        case "$cg_choice" in
+            1) info "Re-scanning..."; _copy_claude_to_all "$(pwd)/CLAUDE.md" ;;
+            2) info "Verifying..." ;;
+            3) echo -e "  ${RED}Aborting.${NC}"; exit 1 ;;
+        esac
+    done
+else
+    warn "CLAUDE.md not found. Model will run without context."
+    echo -e "  ${YELLOW}This hurts performance and may cause rejection.${NC}"
+    ask "Continue without CLAUDE.md? (y/n)"
+    wait_confirm "Continue?" || exit 1
 fi
+
+echo ""
+echo -e "  ${YELLOW}Review CLAUDE.md for accuracy — inaccurate content hurts model performance.${NC}"
 
 wait_enter
 
@@ -1633,37 +1773,209 @@ echo -e "  Test command:         ${CYAN}${TEST_CMD:-N/A}${NC}"
 wsl_copy "${HEAD_COMMIT:-N/A}" && ok "Commit hash copied to clipboard."
 
 # ==========================================================================
-# Summary
+# PRE-TURN-1 VERIFICATION CHECKLIST (WSL)
 # ==========================================================================
 echo ""
-echo -e "${BOLD}${CYAN}"
-echo "  ┌─────────────────────────────────────────────┐"
-echo "  │   SETUP COMPLETE — SUMMARY                  │"
-echo "  └─────────────────────────────────────────────┘"
+echo -e "${BOLD}${RED}"
+echo "  ╔═══════════════════════════════════════════════════════════════╗"
+echo "  ║   PRE-TURN-1 VERIFICATION CHECKLIST                         ║"
+echo "  ║   Every Master Guide requirement checked before you begin.   ║"
+echo "  ╚═══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-echo "    ✓ System prerequisites checked"
-echo "    ✓ Repository downloaded and unpacked"
-echo "    ✓ Git initialized (initial commit only)"
+CHECKLIST_PASS=0
+CHECKLIST_FAIL=0
+CHECKLIST_WARN=0
 
-if [[ "${INSTALL_OK:-false}" == true ]]; then
-    echo -e "    ${GREEN}✓${NC} Dependencies installed ($LANG_DETECTED)"
-else
-    echo -e "    ${RED}✗ Dependencies NOT installed${NC}"
-    echo -e "      ${YELLOW}⚠ Fix before pasting prompt!${NC}"
-fi
+_check_pass() { ((CHECKLIST_PASS++)); echo -e "  ${GREEN}✓ PASS${NC}  $1"; }
+_check_fail() { ((CHECKLIST_FAIL++)); echo -e "  ${RED}✗ FAIL${NC}  $1"; }
+_check_warn() { ((CHECKLIST_WARN++)); echo -e "  ${YELLOW}⚠ WARN${NC}  $1"; }
 
-if [[ "${TESTS_PASSED:-false}" == true ]]; then
-    echo -e "    ${GREEN}✓${NC} Baseline tests passed"
-elif [[ -n "${TEST_CMD:-}" ]]; then
-    echo -e "    ${YELLOW}⚠${NC} Tests ran but may have failed"
-fi
-
-[[ -f "CLAUDE.md" ]] && echo "    ✓ CLAUDE.md in place"
-[[ -f "claude-hfi" ]] && echo "    ✓ CLI binary installed"
-echo "    ✓ Pre-thread survey prepared"
+echo -e "  ${BOLD}── 3.1 System Prerequisites ──${NC}"
+command -v git &>/dev/null && _check_pass "Git installed" || _check_fail "Git not found"
+command -v python3 &>/dev/null && _check_pass "Python3 installed" || _check_warn "Python3 not found"
+command -v tmux &>/dev/null && _check_pass "tmux installed" || _check_fail "tmux not installed"
 
 echo ""
-echo -e "  ${RED}${BOLD}REMINDER: Never run 'git commit' after this point.${NC}"
+echo -e "  ${BOLD}── 3.2 VS Code / Cursor CLI ──${NC}"
+if command -v code &>/dev/null || command -v cursor &>/dev/null; then
+    _check_pass "Editor CLI in PATH"
+else
+    _check_warn "Neither 'code' nor 'cursor' found in PATH"
+fi
+
+echo ""
+echo -e "  ${BOLD}── 3.4 Git Repository State ──${NC}"
+git rev-parse --git-dir &>/dev/null 2>&1 && _check_pass "Git repository initialized" || _check_fail "Not a git repository"
+git log --oneline -1 &>/dev/null 2>&1 && _check_pass "Initial commit exists ($(git log --oneline -1 2>/dev/null | awk '{print $1}'))" || _check_fail "No commits"
+
+DIRTY=$(git status --porcelain 2>/dev/null | grep -v 'CLAUDE.md' | grep -v '.marlin-bridge' | grep -v '.task-bridge' | wc -l | tr -d ' ')
+[[ "$DIRTY" -eq 0 ]] && _check_pass "Working tree clean" || _check_warn "$DIRTY uncommitted files"
+
+BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [[ "$BRANCH" =~ ^pr[-/] ]] || [[ "$BRANCH" =~ ^pull[-/] ]]; then
+    _check_fail "On PR branch '$BRANCH' — must use pre-PR tarball!"
+else
+    _check_pass "Not on a PR branch"
+fi
+
+echo ""
+echo -e "  ${BOLD}── 3.5 Dev Environment ──${NC}"
+[[ "${INSTALL_OK:-false}" == true ]] && _check_pass "Dependencies installed (${LANG_DETECTED:-unknown})" || _check_fail "Dependencies NOT installed"
+[[ "${TESTS_PASSED:-false}" == true ]] && _check_pass "Baseline tests passed" || _check_warn "Tests may not have passed"
+
+echo ""
+echo -e "  ${BOLD}── 3.6 CLAUDE.md ──${NC}"
+[[ -f "CLAUDE.md" ]] && _check_pass "CLAUDE.md exists in repo root" || _check_fail "CLAUDE.md missing"
+
+if [[ -f "CLAUDE.md" ]]; then
+    CL_M=()
+    grep -qi "repository overview\|## overview" CLAUDE.md 2>/dev/null || CL_M+=("Overview")
+    grep -qi "dev setup\|## setup\|## install" CLAUDE.md 2>/dev/null || CL_M+=("Dev Setup")
+    grep -qi "testing\|## test" CLAUDE.md 2>/dev/null || CL_M+=("Testing")
+    grep -qi "conventions\|## code style" CLAUDE.md 2>/dev/null || CL_M+=("Conventions")
+    grep -qi "architecture\|## structure" CLAUDE.md 2>/dev/null || CL_M+=("Architecture")
+    [[ ${#CL_M[@]} -eq 0 ]] && _check_pass "CLAUDE.md has all 5 sections" || _check_warn "CLAUDE.md missing: ${CL_M[*]}"
+
+    CL_SZ=$(wc -c < CLAUDE.md 2>/dev/null | tr -d ' ')
+    [[ "$CL_SZ" -gt 200 ]] && _check_pass "CLAUDE.md has content (${CL_SZ} bytes)" || _check_warn "CLAUDE.md very small (${CL_SZ} bytes)"
+
+    if _verify_claude_in_worktrees 2>/dev/null; then
+        _check_pass "CLAUDE.md in worktree A"
+        _check_pass "CLAUDE.md in worktree B"
+    else
+        _check_fail "CLAUDE.md NOT in worktrees — re-copying..."
+        _copy_claude_to_all "$(pwd)/CLAUDE.md" 2>/dev/null || true
+        if _verify_claude_in_worktrees 2>/dev/null; then
+            _check_pass "CLAUDE.md recovered in both worktrees"
+            ((CHECKLIST_FAIL--))
+        fi
+    fi
+
+    [[ -f ".gitignore" ]] && grep -qE '^\s*CLAUDE\.md\s*$' .gitignore 2>/dev/null && \
+        _check_fail "CLAUDE.md blocked by .gitignore" || _check_pass ".gitignore OK"
+fi
+
+echo ""
+echo -e "  ${BOLD}── 3.7-3.8 Auth + Binary ──${NC}"
+AUTH_OK=false
+[[ -d "$HOME/.claude" || -d "$HOME/.config/claude-hfi" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] && AUTH_OK=true
+find /tmp/claude-hfi 2>/dev/null -maxdepth 1 -type d 2>/dev/null | grep -q . 2>/dev/null && AUTH_OK=true
+[[ "$AUTH_OK" == true ]] && _check_pass "Anthropic auth detected" || _check_warn "No auth config found"
+[[ -f "$(pwd)/claude-hfi" && -x "$(pwd)/claude-hfi" ]] && _check_pass "claude-hfi binary present" || _check_fail "claude-hfi missing"
+
+echo ""
+echo -e "  ${BOLD}── 3.9-3.10 HFI + Worktrees ──${NC}"
+TMX=$(tmux ls 2>/dev/null || true)
+echo "$TMX" | grep -qE '[-_][AB]' 2>/dev/null && _check_pass "HFI tmux sessions detected" || _check_warn "tmux sessions not detected"
+CACHE_N=$(ls -d "$HOME/.cache/claude-hfi/"*/A 2>/dev/null | wc -l | tr -d ' ')
+[[ "$CACHE_N" -ge 1 ]] && _check_pass "HFI worktrees detected" || _check_warn "Worktrees not found yet"
+
+# ── RESULTS ──
+echo ""
+echo -e "  ${BOLD}════════════════════════════════════════════════════${NC}"
+echo -e "  ${GREEN}PASSED: $CHECKLIST_PASS${NC}  ${RED}FAILED: $CHECKLIST_FAIL${NC}  ${YELLOW}WARNINGS: $CHECKLIST_WARN${NC}"
+echo -e "  ${BOLD}════════════════════════════════════════════════════${NC}"
+
+if [[ $CHECKLIST_FAIL -gt 0 ]]; then
+    echo ""
+    echo -e "  ${RED}${BOLD}$CHECKLIST_FAIL CRITICAL CHECK(S) FAILED — fix before pasting Turn 1 prompt.${NC}"
+    echo -e "    ${CYAN}1${NC}) I've fixed the issues — re-run"
+    echo -e "    ${CYAN}2${NC}) Continue anyway (risky)"
+    echo -e "    ${CYAN}3${NC}) Abort"
+    read -rp "  Choice [1/2/3]: " cl_choice
+    [[ "$cl_choice" == "1" ]] && { echo "  Re-run the automation."; exit 0; }
+    [[ "$cl_choice" == "3" ]] && exit 1
+    warn "Proceeding despite failures."
+elif [[ $CHECKLIST_WARN -gt 0 ]]; then
+    echo -e "  ${YELLOW}${BOLD}All critical checks passed. $CHECKLIST_WARN warning(s).${NC}"
+else
+    echo -e "  ${GREEN}${BOLD}★ ALL CHECKS PASSED — Environment is 100% ready for Turn 1 ★${NC}"
+fi
+
+# ==========================================================================
+# EVIDENCE CAPTURE — Auto-snapshot (stored OUTSIDE task folder)
+# ==========================================================================
+EVIDENCE_DIR="$HOME/marlin-evidence/${TASK_NAME:-task}-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/tmux-captures" \
+         "$EVIDENCE_DIR/diffs" "$EVIDENCE_DIR/session" "$EVIDENCE_DIR/claude-md-copies"
+
+echo "$EVIDENCE_DIR" > "$HOME/marlin-evidence/.latest"
+export EVIDENCE_DIR
+
+info "Capturing pre-Turn-1 evidence to: $EVIDENCE_DIR"
+
+# tmux text captures (no screencapture on WSL)
+if [[ -n "${SESSION_A:-}" ]]; then
+    tmux capture-pane -t "$SESSION_A" -p -S -5000 > "$EVIDENCE_DIR/tmux-captures/pre-turn1-A.txt" 2>/dev/null || true
+fi
+if [[ -n "${SESSION_B:-}" ]]; then
+    tmux capture-pane -t "$SESSION_B" -p -S -5000 > "$EVIDENCE_DIR/tmux-captures/pre-turn1-B.txt" 2>/dev/null || true
+fi
+
+# Copy CLAUDE.md
+[[ -f "CLAUDE.md" ]] && cp "CLAUDE.md" "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-root.md" 2>/dev/null || true
+[[ -n "${VERIFIED_A:-}" && -f "${VERIFIED_A}/CLAUDE.md" ]] && \
+    cp "${VERIFIED_A}/CLAUDE.md" "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-A.md" 2>/dev/null || true
+[[ -n "${VERIFIED_B:-}" && -f "${VERIFIED_B}/CLAUDE.md" ]] && \
+    cp "${VERIFIED_B}/CLAUDE.md" "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-B.md" 2>/dev/null || true
+
+CL_ROOT_SIZE="MISSING"; CL_A_SIZE="MISSING"; CL_B_SIZE="MISSING"
+[[ -f "CLAUDE.md" ]] && CL_ROOT_SIZE="$(wc -c < CLAUDE.md | tr -d ' ') bytes"
+[[ -f "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-A.md" ]] && CL_A_SIZE="$(wc -c < "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-A.md" | tr -d ' ') bytes"
+[[ -f "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-B.md" ]] && CL_B_SIZE="$(wc -c < "$EVIDENCE_DIR/claude-md-copies/CLAUDE-md-worktree-B.md" | tr -d ' ') bytes"
+
+cat > "$EVIDENCE_DIR/metadata.md" << METAEOF
+# Task Evidence — ${TASK_NAME:-unknown}
+Generated: $(date '+%Y-%m-%d %H:%M:%S')
+
+## Task Info
+- Repo: $(basename "$(pwd)")
+- Repo path: $(pwd)
+- HEAD commit: ${HEAD_COMMIT:-N/A}
+- Language: ${LANG_DETECTED:-unknown}
+- Test command: ${TEST_CMD:-N/A}
+- Dependencies installed: ${INSTALL_OK:-false}
+- tmux Session A: ${SESSION_A:-not detected}
+- tmux Session B: ${SESSION_B:-not detected}
+- Worktree A: ${VERIFIED_A:-not detected}
+- Worktree B: ${VERIFIED_B:-not detected}
+- OS: WSL ($(uname -s) $(uname -m))
+- Python: $(python3 --version 2>&1 || echo N/A)
+
+## CLAUDE.md Status
+- Root: $CL_ROOT_SIZE
+- Worktree A: $CL_A_SIZE
+- Worktree B: $CL_B_SIZE
+
+## Pre-Turn-1 Checklist
+- Passed: $CHECKLIST_PASS
+- Failed: $CHECKLIST_FAIL
+- Warnings: $CHECKLIST_WARN
+
+---
+
+METAEOF
+
+ok "Evidence captured: $EVIDENCE_DIR"
+echo -e "  ${DIM}Run after each turn: ${CYAN}bash $(dirname "$0")/capture_evidence.sh <turn-number>${NC}${DIM}${NC}"
+
+echo ""
+echo -e "  ${BOLD}Key info:${NC}"
+echo -e "    HEAD commit:   ${CYAN}${HEAD_COMMIT:-N/A}${NC}"
+echo -e "    Repo path:     ${CYAN}$(pwd)${NC}"
+echo -e "    Language:      ${CYAN}${LANG_DETECTED:-unknown}${NC}"
+echo -e "    Evidence dir:  ${CYAN}$EVIDENCE_DIR${NC}"
+
+echo ""
+echo -e "  ${YELLOW}Remaining (human-only):${NC}"
+[[ -f "CLAUDE.md" ]] && echo "    ○ Review CLAUDE.md for accuracy"
+echo "    ○ Attach to tmux sessions"
+echo "    ○ Fill pre-thread survey"
+echo "    ○ Paste your approved Turn 1 prompt"
+echo -e "    ○ After each turn: ${CYAN}bash $(dirname "$0")/capture_evidence.sh <turn#>${NC}"
+
+echo ""
+echo -e "  ${RED}${BOLD}REMINDER: Never run 'git commit' after this point. HFI manages git.${NC}"
 echo ""
 divider

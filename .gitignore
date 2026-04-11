@@ -46,5 +46,16 @@ md_to_pdf.py
 marlin_task_context.md
 phase3_automation_context.md
 
+# Evidence (personal records, not part of package)
+marlin-evidence-task*/
+marlin-evidence/
+
+# External PDFs (downloaded from client platform)
+changelog.pdf
+common mistakes*.pdf
+
+# Personal playbook/notes (may contain task-specific info)
+playbook.md
+
 # Cursor internal
 .cursor/
